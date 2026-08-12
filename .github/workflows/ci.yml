@@ -17,3 +17,20 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       - run: pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Validate Oracle Compose file
+        env:
+          API_ENV_FILE: .env.example
+        run: docker compose -f compose.oracle.yml config -q
+      - name: Build AMD64 and ARM64 images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false

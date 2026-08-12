@@ -1,6 +1,15 @@
 .git
+.github
 .env
+.env.*
+!.env.example
 .venv
 __pycache__
+*.py[cod]
 .pytest_cache
+.ruff_cache
+.coverage
+htmlcov
 tests
+*.md
+.DS_Store
