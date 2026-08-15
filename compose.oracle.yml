@@ -10,6 +10,7 @@ services:
       - "${API_ENV_FILE:-.env}"
     environment:
       PORT: "8000"
+      ORACLE_WALLET_DIR: /opt/oracle/wallet
     expose:
       - "8000"
     healthcheck:
@@ -25,6 +26,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
+    volumes:
+      - "${ORACLE_WALLET_HOST_PATH:-/home/ubuntu/smart-carrier-secrets/oracle-wallet}:/opt/oracle/wallet:ro"
     security_opt:
       - no-new-privileges:true
     cap_drop:
