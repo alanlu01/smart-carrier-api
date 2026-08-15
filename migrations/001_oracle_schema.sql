@@ -56,7 +56,7 @@ BEGIN
   EXECUTE IMMEDIATE q'[
     CREATE TABLE robots (
       id VARCHAR2(64) PRIMARY KEY,
-      mode VARCHAR2(32) DEFAULT 'idle' NOT NULL,
+      robot_mode VARCHAR2(32) DEFAULT 'idle' NOT NULL,
       battery NUMBER,
       location_code VARCHAR2(32) REFERENCES locations(code) ON DELETE SET NULL,
       x NUMBER,
