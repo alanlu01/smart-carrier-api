@@ -13,3 +13,5 @@ htmlcov
 tests
 *.md
 .DS_Store
+smart-carrier-secrets
+Wallet_*.zip
