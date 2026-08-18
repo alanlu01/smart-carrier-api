@@ -110,7 +110,7 @@ def record_heartbeat(robot_id: str, payload: Heartbeat) -> None:
             USING (SELECT :id AS id FROM dual) source
             ON (target.id = source.id)
             WHEN MATCHED THEN UPDATE SET
-                robot_mode = :mode,
+                robot_mode = :robot_mode,
                 battery = :battery,
                 location_code = :location_code,
                 x = :x,
@@ -121,12 +121,12 @@ def record_heartbeat(robot_id: str, payload: Heartbeat) -> None:
                 id, robot_mode, battery, location_code, x, y, yaw,
                 last_seen_at, created_at
             ) VALUES (
-                :id, :mode, :battery, :location_code, :x, :y, :yaw,
+                :id, :robot_mode, :battery, :location_code, :x, :y, :yaw,
                 :last_seen_at, :last_seen_at
             )
             """,
             id=robot_id,
-            mode=payload.mode,
+            robot_mode=payload.mode,
             battery=payload.battery,
             location_code=payload.location_code,
             x=payload.x,
