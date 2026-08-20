@@ -94,6 +94,26 @@ docker compose -f compose.oracle.yml run --rm api python -m app.migrations
 
 The idempotent migration creates locations, tasks, robots, power slots, robot events, indexes, and A1/F1/E1/S1 seed locations.
 
+### Apply measured map locations
+
+Measure each service point with the robot Repository's RViz location calibrator. Preview the
+result inside the API container before changing Oracle:
+
+```bash
+docker compose -f compose.oracle.yml run --rm api \
+  python -m app.location_calibration A1 1.250 2.500 0.0
+```
+
+After the robot-side map validator reports `PASS`, apply the same pose explicitly:
+
+```bash
+docker compose -f compose.oracle.yml run --rm api \
+  python -m app.location_calibration A1 1.250 2.500 0.0 --apply
+```
+
+The command refuses to change a location that has pending or in-progress tasks. Repeat for
+A1, E1, F1, and S1, then verify `/api/v1/locations` before enabling real task claims.
+
 ### Start by public IP
 
 Keep `API_DOMAIN=:80` until a domain points to the VM:

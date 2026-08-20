@@ -13,6 +13,10 @@ TASK_COLUMNS = """
 """
 
 
+class LocationHasActiveTasks(RuntimeError):
+    pass
+
+
 def _row_as_dict(cursor, row) -> dict[str, Any] | None:
     if row is None:
         return None
@@ -32,6 +36,50 @@ def list_locations() -> list[dict[str, Any]]:
     with get_connection() as connection, connection.cursor() as cursor:
         cursor.execute(f"SELECT {LOCATION_COLUMNS} FROM locations ORDER BY code")
         return _fetch_all(cursor)
+
+
+def get_location(location_code: str) -> dict[str, Any] | None:
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT {LOCATION_COLUMNS} FROM locations WHERE code = :code",
+            code=location_code.upper(),
+        )
+        return _fetch_one(cursor)
+
+
+def update_location_coordinates(
+    location_code: str, x: float, y: float, yaw: float
+) -> dict[str, Any] | None:
+    code = location_code.upper()
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM tasks
+            WHERE location_code = :code AND status IN ('pending', 'in_progress')
+            """,
+            code=code,
+        )
+        if cursor.fetchone()[0]:
+            raise LocationHasActiveTasks(
+                f"Location {code} has pending or in-progress tasks; coordinates unchanged"
+            )
+        cursor.execute(
+            """
+            UPDATE locations
+            SET x = :x, y = :y, yaw = :yaw
+            WHERE code = :code
+            """,
+            code=code,
+            x=x,
+            y=y,
+            yaw=yaw,
+        )
+        if cursor.rowcount != 1:
+            connection.rollback()
+            return None
+        connection.commit()
+        cursor.execute(f"SELECT {LOCATION_COLUMNS} FROM locations WHERE code = :code", code=code)
+        return _fetch_one(cursor)
 
 
 def create_order(payload: TaskCreate) -> dict[str, Any] | None:
