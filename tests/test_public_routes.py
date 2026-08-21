@@ -55,6 +55,15 @@ def test_create_order_rejects_unknown_location(monkeypatch):
     assert response.json()["detail"] == "Location not found"
 
 
+def test_cancel_order_returns_conflict_after_task_starts(monkeypatch):
+    monkeypatch.setattr(repository, "cancel_order", lambda _task_id: False)
+
+    response = client.post(f"/api/v1/orders/{uuid4()}/cancel")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Task cannot be cancelled"
+
+
 def test_robot_endpoint_requires_token():
     response = client.post("/api/v1/robots/R1/heartbeat", json={"mode": "idle"})
     assert response.status_code == 401

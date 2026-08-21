@@ -147,7 +147,7 @@ def cancel_order(task_id: str) -> bool:
             """
             UPDATE tasks
             SET status = 'cancelled', updated_at = SYSTIMESTAMP
-            WHERE id = :id AND status IN ('pending', 'in_progress')
+            WHERE id = :id AND status = 'pending'
             """,
             id=task_id,
         )

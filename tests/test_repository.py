@@ -24,3 +24,23 @@ def test_heartbeat_avoids_reserved_mode_bind_name(monkeypatch):
     assert ":mode" not in sql
     assert bind_values["robot_mode"] == "idle"
     connection.commit.assert_called_once_with()
+
+
+def test_cancel_order_only_updates_pending_tasks(monkeypatch):
+    cursor = MagicMock()
+    cursor.rowcount = 1
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(repository, "get_connection", fake_connection)
+
+    assert repository.cancel_order("task-1") is True
+
+    sql = cursor.execute.call_args.args[0]
+    assert "status = 'pending'" in sql
+    assert "in_progress" not in sql
+    connection.commit.assert_called_once_with()
