@@ -8,7 +8,7 @@ from app.schemas import Heartbeat, TaskClaim, TaskClaimSlot, TaskCreate, TaskRes
 LOCATION_COLUMNS = "code, name, description, floor, x, y, yaw"
 TASK_COLUMNS = """
     id, location_code, task_type, status, note, result_note,
-    required_charge, quantity, robot_id, created_at, updated_at,
+    power_bank_id, required_charge, quantity, robot_id, created_at, updated_at,
     assigned_at, completed_at
 """
 
@@ -26,6 +26,7 @@ def task_is_compatible(
     required_charge: int | None,
     quantity: int,
     slots: list[TaskClaimSlot],
+    power_bank_id: str | None = None,
 ) -> bool:
     """Return whether this robot can execute a pending task from its current slots."""
     if quantity != 1:
@@ -39,6 +40,7 @@ def task_is_compatible(
         minimum_charge = required_charge or 0
         return any(
             slot.status in {"ready", "full"}
+            and (power_bank_id is None or slot.bank_id == power_bank_id)
             and (slot.charge is None or slot.charge >= minimum_charge)
             for slot in healthy_slots
         )
@@ -46,11 +48,17 @@ def task_is_compatible(
 
 
 def first_compatible_task_id(
-    candidates: list[tuple[str, str, int | None, int]],
+    candidates: list[tuple[str, str, str | None, int | None, int]],
     slots: list[TaskClaimSlot],
 ) -> str | None:
-    for task_id, task_type, required_charge, quantity in candidates:
-        if task_is_compatible(task_type, required_charge, quantity, slots):
+    for task_id, task_type, power_bank_id, required_charge, quantity in candidates:
+        if task_is_compatible(
+            task_type,
+            required_charge,
+            quantity,
+            slots,
+            power_bank_id,
+        ):
             return task_id
     return None
 
@@ -138,16 +146,18 @@ def create_order(payload: TaskCreate) -> dict[str, Any] | None:
             """
             INSERT INTO tasks (
                 id, location_code, task_type, status, note,
-                required_charge, quantity, created_at, updated_at
+                power_bank_id, required_charge, quantity, created_at, updated_at
             ) VALUES (
                 :id, :location_code, :task_type, 'pending', :note,
-                :required_charge, :quantity, SYSTIMESTAMP, SYSTIMESTAMP
+                :power_bank_id, :required_charge, :quantity,
+                SYSTIMESTAMP, SYSTIMESTAMP
             )
             """,
             id=task_id,
             location_code=location_code,
             task_type=payload.task_type,
             note=payload.note,
+            power_bank_id=payload.power_bank_id,
             required_charge=payload.required_charge,
             quantity=payload.quantity,
         )
@@ -347,7 +357,7 @@ def claim_task(robot_id: str, payload: TaskClaim) -> dict[str, Any] | None:
         for _ in range(3):
             cursor.execute(
                 """
-                SELECT id, task_type, required_charge, quantity
+                SELECT id, task_type, power_bank_id, required_charge, quantity
                 FROM tasks
                 WHERE status = 'pending'
                 ORDER BY created_at

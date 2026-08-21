@@ -5,10 +5,17 @@ BORROW_DISTANCE_WEIGHT = 0.7
 BORROWABLE = {"full": 0, "ready": 1}
 
 
-def select_power_bank(slots: list[dict[str, Any] | None], required_charge: float = 0):
+def select_power_bank(
+    slots: list[dict[str, Any] | None],
+    required_charge: float = 0,
+    power_bank_id: str | None = None,
+):
     candidates = []
     for index, bank in enumerate(slots):
         if not bank or bank.get("status") not in BORROWABLE:
+            continue
+        bank_id = bank.get("bank_id") or bank.get("id")
+        if power_bank_id is not None and bank_id != power_bank_id:
             continue
         charge = float(bank.get("charge", 101))
         if charge < required_charge:
@@ -32,7 +39,11 @@ def schedule_orders(
         for index, order in enumerate(pending):
             distance = math.hypot(order["x"] - position["x"], order["y"] - position["y"])
             if order["type"] == "borrow":
-                bank = select_power_bank(inventory, order.get("required_charge", 0))
+                bank = select_power_bank(
+                    inventory,
+                    order.get("required_charge", 0),
+                    order.get("power_bank_id"),
+                )
                 if bank:
                     feasible.append((distance * BORROW_DISTANCE_WEIGHT, distance, index, bank))
             elif order["type"] == "return" and None in inventory:

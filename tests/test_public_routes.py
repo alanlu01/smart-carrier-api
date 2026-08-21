@@ -21,6 +21,7 @@ def task_record(**overrides):
         "status": "pending",
         "note": None,
         "result_note": None,
+        "power_bank_id": None,
         "required_charge": 80,
         "quantity": 1,
         "robot_id": None,
@@ -33,17 +34,30 @@ def task_record(**overrides):
 
 
 def test_create_order_uses_oracle_repository(monkeypatch):
-    expected = task_record()
-    monkeypatch.setattr(repository, "create_order", lambda _payload: expected)
+    expected = task_record(power_bank_id="PB-02")
+    captured = {}
+
+    def fake_create_order(payload):
+        captured["payload"] = payload
+        return expected
+
+    monkeypatch.setattr(repository, "create_order", fake_create_order)
 
     response = client.post(
         "/api/v1/orders",
-        json={"location_code": "A1", "task_type": "borrow", "required_charge": 80},
+        json={
+            "location_code": "A1",
+            "task_type": "borrow",
+            "power_bank_id": "pb-02",
+            "required_charge": 80,
+        },
     )
 
     assert response.status_code == 201
     assert response.json()["location_code"] == "A1"
     assert response.json()["task_type"] == "borrow"
+    assert response.json()["power_bank_id"] == "PB-02"
+    assert captured["payload"].power_bank_id == "PB-02"
 
 
 def test_create_order_rejects_unknown_location(monkeypatch):

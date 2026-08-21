@@ -28,6 +28,7 @@ BEGIN
       status VARCHAR2(20) DEFAULT 'pending' NOT NULL,
       note VARCHAR2(500),
       result_note VARCHAR2(500),
+      power_bank_id VARCHAR2(64),
       required_charge NUMBER(3),
       quantity NUMBER(1) DEFAULT 1 NOT NULL,
       robot_id VARCHAR2(64),
@@ -49,6 +50,13 @@ BEGIN
   ]';
 EXCEPTION
   WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+
+BEGIN
+  EXECUTE IMMEDIATE 'ALTER TABLE tasks ADD (power_bank_id VARCHAR2(64))';
+EXCEPTION
+  WHEN OTHERS THEN IF SQLCODE != -1430 THEN RAISE; END IF;
 END;
 /
 

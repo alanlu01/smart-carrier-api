@@ -7,7 +7,12 @@ from app.schemas import TaskClaim, TaskClaimSlot
 
 def three_slots(*statuses: tuple[str, int | None]) -> list[TaskClaimSlot]:
     return [
-        TaskClaimSlot(slot=index, status=status, charge=charge)
+        TaskClaimSlot(
+            slot=index,
+            bank_id=None if status == "empty" else f"PB-{index:02d}",
+            status=status,
+            charge=charge,
+        )
         for index, (status, charge) in enumerate(statuses, start=1)
     ]
 
@@ -35,12 +40,25 @@ def test_return_requires_an_empty_slot_and_borrow_respects_minimum_charge():
     assert task_is_compatible("borrow", 90, 1, full_slots)
 
 
+def test_borrow_requires_the_selected_power_bank_when_one_is_requested():
+    slots = three_slots(("full", 100), ("ready", 96), ("empty", 0))
+
+    assert task_is_compatible("borrow", 80, 1, slots, "PB-02")
+    assert not task_is_compatible("borrow", 80, 1, slots, "PB-03")
+
+
+def test_claim_slot_normalizes_power_bank_id():
+    slot = TaskClaimSlot(slot=2, bank_id=" pb-02 ", status="full", charge=100)
+
+    assert slot.bank_id == "PB-02"
+
+
 def test_oldest_incompatible_task_is_skipped_for_next_compatible_task():
     slots = three_slots(("low", 45), ("low", 30), ("empty", 0))
     candidates = [
-        ("borrow-oldest", "borrow", 80, 1),
-        ("navigation-next", "navigation", None, 1),
-        ("return-later", "return", None, 1),
+        ("borrow-oldest", "borrow", "PB-01", 80, 1),
+        ("navigation-next", "navigation", None, None, 1),
+        ("return-later", "return", None, None, 1),
     ]
 
     assert first_compatible_task_id(candidates, slots) == "navigation-next"

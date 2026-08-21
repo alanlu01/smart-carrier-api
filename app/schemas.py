@@ -33,8 +33,19 @@ class TaskCreate(BaseModel):
     location_code: str = Field(min_length=1, max_length=32)
     task_type: TaskType = "borrow"
     note: str | None = Field(default=None, max_length=500)
+    power_bank_id: str | None = Field(default=None, min_length=1, max_length=64)
     required_charge: int | None = Field(default=None, ge=0, le=100)
     quantity: int = Field(default=1, ge=1, le=3)
+
+    @field_validator("power_bank_id")
+    @classmethod
+    def normalize_power_bank_id(cls, power_bank_id: str | None) -> str | None:
+        if power_bank_id is None:
+            return None
+        normalized = power_bank_id.strip().upper()
+        if not normalized:
+            raise ValueError("power_bank_id must not be blank")
+        return normalized
 
 
 class Task(BaseModel):
@@ -44,6 +55,7 @@ class Task(BaseModel):
     status: TaskStatus
     note: str | None = None
     result_note: str | None = None
+    power_bank_id: str | None = None
     required_charge: int | None = None
     quantity: int = 1
     robot_id: str | None = None
@@ -59,9 +71,20 @@ class ClaimedTask(Task):
 
 class TaskClaimSlot(BaseModel):
     slot: int = Field(ge=1, le=3)
+    bank_id: str | None = Field(default=None, max_length=64)
     status: Literal["empty", "low", "ready", "full", "unknown"]
     charge: int | None = Field(default=None, ge=0, le=100)
     sensor_ok: bool = True
+
+    @field_validator("bank_id")
+    @classmethod
+    def normalize_bank_id(cls, bank_id: str | None) -> str | None:
+        if bank_id is None:
+            return None
+        normalized = bank_id.strip().upper()
+        if not normalized:
+            raise ValueError("bank_id must not be blank")
+        return normalized
 
 
 class TaskClaim(BaseModel):
