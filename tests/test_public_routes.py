@@ -74,3 +74,58 @@ def test_non_ascii_robot_token_is_rejected_instead_of_crashing():
         require_robot_token("Bearer 錯誤-token")
 
     assert exc_info.value.status_code == 401
+
+
+def test_robot_claim_passes_validated_three_slot_snapshot(monkeypatch):
+    captured = {}
+
+    def fake_claim(robot_id, payload):
+        captured["robot_id"] = robot_id
+        captured["payload"] = payload
+        return None
+
+    monkeypatch.setitem(app.dependency_overrides, require_robot_token, lambda: None)
+    monkeypatch.setattr(repository, "claim_task", fake_claim)
+
+    response = client.post(
+        "/api/v1/robots/R1/tasks/claim",
+        json={
+            "slots": [
+                {"slot": 1, "status": "ready", "charge": 96},
+                {"slot": 2, "status": "low", "charge": 45},
+                {"slot": 3, "status": "empty", "charge": 0},
+            ]
+        },
+    )
+
+    assert response.status_code == 204
+    assert captured["robot_id"] == "R1"
+    assert [slot.slot for slot in captured["payload"].slots] == [1, 2, 3]
+
+
+def test_robot_claim_rejects_incomplete_slot_snapshot(monkeypatch):
+    monkeypatch.setitem(app.dependency_overrides, require_robot_token, lambda: None)
+
+    response = client.post(
+        "/api/v1/robots/R1/tasks/claim",
+        json={
+            "slots": [
+                {"slot": 1, "status": "ready", "charge": 96},
+                {"slot": 2, "status": "low", "charge": 45},
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_robot_release_returns_conflict_if_task_is_not_owned(monkeypatch):
+    monkeypatch.setitem(app.dependency_overrides, require_robot_token, lambda: None)
+    monkeypatch.setattr(repository, "release_task", lambda *_args: False)
+
+    response = client.post(
+        "/api/v1/robots/R1/tasks/task-1/release",
+        json={"note": "inventory changed"},
+    )
+
+    assert response.status_code == 409

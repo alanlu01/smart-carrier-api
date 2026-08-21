@@ -1,7 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app import repository
-from app.schemas import ClaimedTask, Heartbeat, MessageResponse, TaskResult
+from app.schemas import (
+    ClaimedTask,
+    Heartbeat,
+    MessageResponse,
+    TaskClaim,
+    TaskRelease,
+    TaskResult,
+)
 from app.security import require_robot_token
 
 router = APIRouter(
@@ -18,12 +25,19 @@ def heartbeat(robot_id: str, payload: Heartbeat):
 
 
 @router.post("/{robot_id}/tasks/claim", response_model=ClaimedTask | None)
-def claim_task(robot_id: str, response: Response):
-    task = repository.claim_task(robot_id)
+def claim_task(robot_id: str, payload: TaskClaim, response: Response):
+    task = repository.claim_task(robot_id, payload)
     if task is None:
         response.status_code = status.HTTP_204_NO_CONTENT
         return None
     return task
+
+
+@router.post("/{robot_id}/tasks/{task_id}/release", response_model=MessageResponse)
+def release_task(robot_id: str, task_id: str, payload: TaskRelease):
+    if not repository.release_task(robot_id, task_id, payload.note):
+        raise HTTPException(status_code=409, detail="Assigned task cannot be released")
+    return MessageResponse()
 
 
 @router.post("/{robot_id}/tasks/{task_id}/result", response_model=MessageResponse)

@@ -3,7 +3,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.database import get_connection
-from app.schemas import Heartbeat, TaskCreate, TaskResult
+from app.schemas import Heartbeat, TaskClaim, TaskClaimSlot, TaskCreate, TaskResult
 
 LOCATION_COLUMNS = "code, name, description, floor, x, y, yaw"
 TASK_COLUMNS = """
@@ -15,6 +15,43 @@ TASK_COLUMNS = """
 
 class LocationHasActiveTasks(RuntimeError):
     pass
+
+
+NAVIGATION_ONLY_TASK_TYPES = {"delivery", "navigation", "callbot"}
+
+
+def task_is_compatible(
+    task_type: str,
+    required_charge: int | None,
+    quantity: int,
+    slots: list[TaskClaimSlot],
+) -> bool:
+    """Return whether this robot can execute a pending task from its current slots."""
+    if quantity != 1:
+        return False
+    if task_type in NAVIGATION_ONLY_TASK_TYPES:
+        return True
+    healthy_slots = [slot for slot in slots if slot.sensor_ok and slot.status != "unknown"]
+    if task_type == "return":
+        return any(slot.status == "empty" for slot in healthy_slots)
+    if task_type == "borrow":
+        minimum_charge = required_charge or 0
+        return any(
+            slot.status in {"ready", "full"}
+            and (slot.charge is None or slot.charge >= minimum_charge)
+            for slot in healthy_slots
+        )
+    return False
+
+
+def first_compatible_task_id(
+    candidates: list[tuple[str, str, int | None, int]],
+    slots: list[TaskClaimSlot],
+) -> str | None:
+    for task_id, task_type, required_charge, quantity in candidates:
+        if task_is_compatible(task_type, required_charge, quantity, slots):
+            return task_id
+    return None
 
 
 def _row_as_dict(cursor, row) -> dict[str, Any] | None:
@@ -226,24 +263,21 @@ def record_heartbeat(robot_id: str, payload: Heartbeat) -> None:
         connection.commit()
 
 
-def claim_task(robot_id: str) -> dict[str, Any] | None:
+def claim_task(robot_id: str, payload: TaskClaim) -> dict[str, Any] | None:
     with get_connection() as connection, connection.cursor() as cursor:
         for _ in range(3):
             cursor.execute(
                 """
-                SELECT id
-                FROM (
-                    SELECT id FROM tasks
-                    WHERE status = 'pending'
-                    ORDER BY created_at
-                )
-                WHERE ROWNUM = 1
+                SELECT id, task_type, required_charge, quantity
+                FROM tasks
+                WHERE status = 'pending'
+                ORDER BY created_at
                 """
             )
-            row = cursor.fetchone()
-            if row is None:
+            candidates = cursor.fetchall()
+            task_id = first_compatible_task_id(candidates, payload.slots)
+            if task_id is None:
                 return None
-            task_id = row[0]
             cursor.execute(
                 """
                 UPDATE tasks
@@ -266,6 +300,25 @@ def claim_task(robot_id: str) -> dict[str, Any] | None:
                 return task
             connection.rollback()
         return None
+
+
+def release_task(robot_id: str, task_id: str, note: str | None = None) -> bool:
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE tasks
+            SET status = 'pending', robot_id = NULL, assigned_at = NULL,
+                completed_at = NULL, result_note = :release_note,
+                updated_at = SYSTIMESTAMP
+            WHERE id = :id AND robot_id = :robot_id AND status = 'in_progress'
+            """,
+            release_note=note,
+            id=task_id,
+            robot_id=robot_id,
+        )
+        changed = cursor.rowcount == 1
+        connection.commit()
+        return changed
 
 
 def complete_task(robot_id: str, task_id: str, payload: TaskResult) -> bool:

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 TaskStatus = Literal["pending", "in_progress", "done", "cancelled", "failed"]
 TaskType = Literal["borrow", "return", "delivery", "navigation", "callbot"]
@@ -55,6 +55,28 @@ class Task(BaseModel):
 
 class ClaimedTask(Task):
     location: Location | None = None
+
+
+class TaskClaimSlot(BaseModel):
+    slot: int = Field(ge=1, le=3)
+    status: Literal["empty", "low", "ready", "full", "unknown"]
+    charge: int | None = Field(default=None, ge=0, le=100)
+    sensor_ok: bool = True
+
+
+class TaskClaim(BaseModel):
+    slots: list[TaskClaimSlot] = Field(min_length=3, max_length=3)
+
+    @field_validator("slots")
+    @classmethod
+    def require_all_three_slots(cls, slots: list[TaskClaimSlot]) -> list[TaskClaimSlot]:
+        if {slot.slot for slot in slots} != {1, 2, 3}:
+            raise ValueError("slots must contain slot numbers 1, 2, and 3 exactly once")
+        return slots
+
+
+class TaskRelease(BaseModel):
+    note: str | None = Field(default=None, max_length=500)
 
 
 class TaskResult(BaseModel):
