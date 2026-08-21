@@ -124,7 +124,7 @@ END;
 
 MERGE INTO locations target
 USING (
-  SELECT 'A1' code, '一樓服務區 A1' name, '1F' floor, 0 x, 0 y, 0 yaw FROM dual
+  SELECT 'A1' code, '門口' name, '1F' floor, -0.45 x, -0.35 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
 WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw)
@@ -133,7 +133,7 @@ VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw);
 
 MERGE INTO locations target
 USING (
-  SELECT 'F1' code, '美食區 F1' name, '1F' floor, 8 x, 3 y, 0 yaw FROM dual
+  SELECT 'F1' code, '廁所' name, '1F' floor, -4 x, 1.5 y, 3.14 yaw FROM dual
 ) source
 ON (target.code = source.code)
 WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw)
@@ -142,7 +142,7 @@ VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw);
 
 MERGE INTO locations target
 USING (
-  SELECT 'E1' code, '展覽區 E1' name, '1F' floor, 14 x, 7 y, 0 yaw FROM dual
+  SELECT 'E1' code, '廚房' name, '1F' floor, -1.5 x, 5 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
 WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw)
@@ -151,7 +151,7 @@ VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw);
 
 MERGE INTO locations target
 USING (
-  SELECT 'S1' code, '商店區 S1' name, '1F' floor, 5 x, 12 y, 0 yaw FROM dual
+  SELECT 'S1' code, '客廳TV' name, '1F' floor, 0.4 x, 0 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
 WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw)

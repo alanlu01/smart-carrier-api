@@ -19,16 +19,35 @@ def test_location_calibration_defaults_to_dry_run(monkeypatch, capsys):
         lambda *args: apply_calls.append(args),
     )
 
-    assert location_calibration.main(["a1", "1.2", "2.3", "0.5"]) == 0
+    assert (
+        location_calibration.main(
+            ["a1", "1.2", "2.3", "0.5", "--name", "門口"]
+        )
+        == 0
+    )
     assert not apply_calls
-    assert "Dry run only" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert '"name": "門口"' in output
+    assert "Dry run only" in output
 
 
 def test_location_calibration_applies_explicitly(monkeypatch, capsys):
     current = {"code": "A1", "x": 0.0, "y": 0.0, "yaw": 0.0}
     updated = {"code": "A1", "x": 1.2, "y": 2.3, "yaw": 0.5}
     monkeypatch.setattr(repository, "get_location", lambda _code: current)
-    monkeypatch.setattr(repository, "update_location_coordinates", lambda *_args: updated)
+    apply_calls = []
 
-    assert location_calibration.main(["A1", "1.2", "2.3", "0.5", "--apply"]) == 0
+    def apply_update(*args, **kwargs):
+        apply_calls.append((args, kwargs))
+        return updated
+
+    monkeypatch.setattr(repository, "update_location_coordinates", apply_update)
+
+    assert (
+        location_calibration.main(
+            ["A1", "1.2", "2.3", "0.5", "--name", "門口", "--apply"]
+        )
+        == 0
+    )
+    assert apply_calls == [(("A1", 1.2, 2.3, 0.5), {"name": "門口"})]
     assert '"updated"' in capsys.readouterr().out

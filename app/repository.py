@@ -48,7 +48,12 @@ def get_location(location_code: str) -> dict[str, Any] | None:
 
 
 def update_location_coordinates(
-    location_code: str, x: float, y: float, yaw: float
+    location_code: str,
+    x: float,
+    y: float,
+    yaw: float,
+    *,
+    name: str | None = None,
 ) -> dict[str, Any] | None:
     code = location_code.upper()
     with get_connection() as connection, connection.cursor() as cursor:
@@ -66,10 +71,12 @@ def update_location_coordinates(
         cursor.execute(
             """
             UPDATE locations
-            SET x = :x, y = :y, yaw = :yaw
+            SET name = COALESCE(:location_name, name),
+                x = :x, y = :y, yaw = :yaw
             WHERE code = :code
             """,
             code=code,
+            location_name=name,
             x=x,
             y=y,
             yaw=yaw,

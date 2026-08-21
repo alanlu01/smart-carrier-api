@@ -101,18 +101,27 @@ result inside the API container before changing Oracle:
 
 ```bash
 docker compose -f compose.oracle.yml run --rm api \
-  python -m app.location_calibration A1 1.250 2.500 0.0
+  python -m app.location_calibration A1 -0.45 -0.35 0.0 --name '門口'
 ```
 
 After the robot-side map validator reports `PASS`, apply the same pose explicitly:
 
 ```bash
 docker compose -f compose.oracle.yml run --rm api \
-  python -m app.location_calibration A1 1.250 2.500 0.0 --apply
+  python -m app.location_calibration A1 -0.45 -0.35 0.0 --name '門口' --apply
 ```
 
 The command refuses to change a location that has pending or in-progress tasks. Repeat for
 A1, E1, F1, and S1, then verify `/api/v1/locations` before enabling real task claims.
+
+The robot map is the source of truth. The current cloud mapping is:
+
+| Code | Name | x | y | yaw |
+| --- | --- | ---: | ---: | ---: |
+| A1 | 門口 | -0.45 | -0.35 | 0.0 |
+| E1 | 廚房 | -1.5 | 5.0 | 0.0 |
+| F1 | 廁所 | -4.0 | 1.5 | 3.14 |
+| S1 | 客廳TV | 0.4 | 0.0 | 0.0 |
 
 ### Start by public IP
 
