@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -18,6 +18,7 @@ class LocationHasActiveTasks(RuntimeError):
 
 
 NAVIGATION_ONLY_TASK_TYPES = {"delivery", "navigation", "callbot"}
+ROBOT_ONLINE_TIMEOUT_SECONDS = 15
 
 
 def task_is_compatible(
@@ -193,6 +194,80 @@ def cancel_order(task_id: str) -> bool:
         return changed
 
 
+def robot_is_online(last_seen_at: datetime, now: datetime | None = None) -> bool:
+    current = now or datetime.now(UTC)
+    if last_seen_at.tzinfo is None:
+        current = current.replace(tzinfo=None)
+    return current - last_seen_at <= timedelta(seconds=ROBOT_ONLINE_TIMEOUT_SECONDS)
+
+
+def get_robot_status(robot_id: str) -> dict[str, Any] | None:
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id, robot_mode, battery, location_code, x, y, yaw, last_seen_at
+            FROM robots
+            WHERE id = :id
+            """,
+            id=robot_id,
+        )
+        robot = _fetch_one(cursor)
+        if robot is None:
+            return None
+
+        robot["mode"] = robot.pop("robot_mode")
+        robot["online"] = robot_is_online(robot["last_seen_at"])
+
+        cursor.execute(
+            """
+            SELECT id
+            FROM (
+                SELECT id
+                FROM tasks
+                WHERE robot_id = :robot_id AND status = 'in_progress'
+                ORDER BY assigned_at DESC
+            )
+            WHERE ROWNUM = 1
+            """,
+            robot_id=robot_id,
+        )
+        task_row = cursor.fetchone()
+        robot["current_task_id"] = task_row[0] if task_row else None
+
+        cursor.execute(
+            """
+            SELECT slot_number AS slot, bank_id, status,
+                   voltage_volts AS voltage, current_amps AS current_amps,
+                   charge, sensor_ok, updated_at
+            FROM power_slots
+            WHERE robot_id = :robot_id
+            ORDER BY slot_number
+            """,
+            robot_id=robot_id,
+        )
+        saved_slots = _fetch_all(cursor)
+        slots_by_number = {int(slot["slot"]): slot for slot in saved_slots}
+        robot["slots"] = [
+            slots_by_number.get(
+                slot_number,
+                {
+                    "slot": slot_number,
+                    "bank_id": None,
+                    "status": "unknown",
+                    "voltage": None,
+                    "current_amps": None,
+                    "charge": None,
+                    "sensor_ok": False,
+                    "updated_at": None,
+                },
+            )
+            for slot_number in range(1, 4)
+        ]
+        for slot in robot["slots"]:
+            slot["current"] = slot.pop("current_amps")
+        return robot
+
+
 def record_heartbeat(robot_id: str, payload: Heartbeat) -> None:
     now = datetime.now(UTC)
     with get_connection() as connection, connection.cursor() as cursor:
@@ -241,23 +316,27 @@ def record_heartbeat(robot_id: str, payload: Heartbeat) -> None:
                 WHEN MATCHED THEN UPDATE SET
                     bank_id = :bank_id,
                     status = :status,
+                    voltage_volts = :voltage_volts,
                     current_amps = :current_amps,
                     charge = :charge,
+                    sensor_ok = :sensor_ok,
                     updated_at = :updated_at
                 WHEN NOT MATCHED THEN INSERT (
                     robot_id, slot_number, bank_id, status,
-                    current_amps, charge, updated_at
+                    voltage_volts, current_amps, charge, sensor_ok, updated_at
                 ) VALUES (
                     :robot_id, :slot_number, :bank_id, :status,
-                    :current_amps, :charge, :updated_at
+                    :voltage_volts, :current_amps, :charge, :sensor_ok, :updated_at
                 )
                 """,
                 robot_id=robot_id,
                 slot_number=slot_number,
                 bank_id=str(bank_id) if bank_id is not None else None,
-                status=str(slot.get("status", "empty")),
+                status=str(slot.get("status", "unknown")),
+                voltage_volts=slot.get("voltage"),
                 current_amps=slot.get("current"),
                 charge=slot.get("charge"),
+                sensor_ok=1 if slot.get("sensor_ok", True) else 0,
                 updated_at=now,
             )
         connection.commit()

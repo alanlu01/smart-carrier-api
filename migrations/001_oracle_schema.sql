@@ -79,8 +79,10 @@ BEGIN
       slot_number NUMBER(1) NOT NULL,
       bank_id VARCHAR2(64),
       status VARCHAR2(32) DEFAULT 'empty' NOT NULL,
+      voltage_volts NUMBER,
       current_amps NUMBER,
       charge NUMBER,
+      sensor_ok NUMBER(1) DEFAULT 1 NOT NULL CHECK (sensor_ok IN (0, 1)),
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
       CONSTRAINT pk_power_slots PRIMARY KEY (robot_id, slot_number),
       CONSTRAINT ck_slot_number CHECK (slot_number BETWEEN 1 AND 3),
@@ -89,6 +91,24 @@ BEGIN
   ]';
 EXCEPTION
   WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+
+BEGIN
+  EXECUTE IMMEDIATE 'ALTER TABLE power_slots ADD (voltage_volts NUMBER)';
+EXCEPTION
+  WHEN OTHERS THEN IF SQLCODE != -1430 THEN RAISE; END IF;
+END;
+/
+
+BEGIN
+  EXECUTE IMMEDIATE q'[
+    ALTER TABLE power_slots ADD (
+      sensor_ok NUMBER(1) DEFAULT 1 NOT NULL CHECK (sensor_ok IN (0, 1))
+    )
+  ]';
+EXCEPTION
+  WHEN OTHERS THEN IF SQLCODE != -1430 THEN RAISE; END IF;
 END;
 /
 

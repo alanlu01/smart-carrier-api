@@ -94,5 +94,30 @@ class Heartbeat(BaseModel):
     slots: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class RobotSlotStatus(BaseModel):
+    slot: int = Field(ge=1, le=3)
+    bank_id: str | None = None
+    status: Literal["empty", "low", "ready", "full", "unknown"]
+    voltage: float | None = None
+    current: float | None = None
+    charge: int | None = Field(default=None, ge=0, le=100)
+    sensor_ok: bool
+    updated_at: datetime | None = None
+
+
+class RobotStatus(BaseModel):
+    id: str
+    online: bool
+    mode: str
+    battery: float | None = Field(default=None, ge=0, le=100)
+    location_code: str | None = None
+    x: float | None = None
+    y: float | None = None
+    yaw: float | None = None
+    last_seen_at: datetime
+    current_task_id: UUID | None = None
+    slots: list[RobotSlotStatus]
+
+
 class MessageResponse(BaseModel):
     ok: bool = True

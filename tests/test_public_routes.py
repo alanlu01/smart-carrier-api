@@ -64,6 +64,76 @@ def test_cancel_order_returns_conflict_after_task_starts(monkeypatch):
     assert response.json()["detail"] == "Task cannot be cancelled"
 
 
+def test_public_robot_status_returns_live_slots_without_robot_token(monkeypatch):
+    now = datetime.now(UTC)
+    monkeypatch.setattr(
+        repository,
+        "get_robot_status",
+        lambda _robot_id: {
+            "id": "R1",
+            "online": True,
+            "mode": "idle",
+            "battery": None,
+            "location_code": "A1",
+            "x": -0.45,
+            "y": -0.35,
+            "yaw": 0.0,
+            "last_seen_at": now,
+            "current_task_id": None,
+            "slots": [
+                {
+                    "slot": 1,
+                    "bank_id": "PB-01",
+                    "status": "ready",
+                    "voltage": 5.0,
+                    "current": 0.1,
+                    "charge": 96,
+                    "sensor_ok": True,
+                    "updated_at": now,
+                },
+                {
+                    "slot": 2,
+                    "bank_id": "PB-02",
+                    "status": "low",
+                    "voltage": 5.0,
+                    "current": 0.5,
+                    "charge": 40,
+                    "sensor_ok": True,
+                    "updated_at": now,
+                },
+                {
+                    "slot": 3,
+                    "bank_id": None,
+                    "status": "empty",
+                    "voltage": 0.0,
+                    "current": 0.0,
+                    "charge": 0,
+                    "sensor_ok": True,
+                    "updated_at": now,
+                },
+            ],
+        },
+    )
+
+    response = client.get("/api/v1/robots/R1/status")
+
+    assert response.status_code == 200
+    assert response.json()["battery"] is None
+    assert [slot["status"] for slot in response.json()["slots"]] == [
+        "ready",
+        "low",
+        "empty",
+    ]
+
+
+def test_public_robot_status_returns_not_found(monkeypatch):
+    monkeypatch.setattr(repository, "get_robot_status", lambda _robot_id: None)
+
+    response = client.get("/api/v1/robots/UNKNOWN/status")
+
+    assert response.status_code == 404
+
+
 def test_robot_endpoint_requires_token():
     response = client.post("/api/v1/robots/R1/heartbeat", json={"mode": "idle"})
     assert response.status_code == 401
