@@ -60,6 +60,25 @@ def test_create_order_uses_oracle_repository(monkeypatch):
     assert captured["payload"].power_bank_id == "PB-02"
 
 
+def test_task_response_marks_naive_oracle_timestamps_as_utc(monkeypatch):
+    oracle_timestamp = datetime(2026, 8, 22, 9, 6, 15)
+    expected = task_record(
+        created_at=oracle_timestamp,
+        updated_at=oracle_timestamp,
+        assigned_at=oracle_timestamp,
+        completed_at=oracle_timestamp,
+    )
+    monkeypatch.setattr(repository, "get_order", lambda _task_id: expected)
+
+    response = client.get(f"/api/v1/orders/{expected['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["created_at"] == "2026-08-22T09:06:15Z"
+    assert response.json()["updated_at"] == "2026-08-22T09:06:15Z"
+    assert response.json()["assigned_at"] == "2026-08-22T09:06:15Z"
+    assert response.json()["completed_at"] == "2026-08-22T09:06:15Z"
+
+
 def test_create_order_rejects_unknown_location(monkeypatch):
     monkeypatch.setattr(repository, "create_order", lambda _payload: None)
 
@@ -79,7 +98,7 @@ def test_cancel_order_returns_conflict_after_task_starts(monkeypatch):
 
 
 def test_public_robot_status_returns_live_slots_without_robot_token(monkeypatch):
-    now = datetime.now(UTC)
+    now = datetime(2026, 8, 22, 9, 6, 15)
     monkeypatch.setattr(
         repository,
         "get_robot_status",
@@ -138,6 +157,8 @@ def test_public_robot_status_returns_live_slots_without_robot_token(monkeypatch)
         "low",
         "empty",
     ]
+    assert response.json()["last_seen_at"] == "2026-08-22T09:06:15Z"
+    assert response.json()["slots"][0]["updated_at"] == "2026-08-22T09:06:15Z"
 
 
 def test_public_robot_status_returns_not_found(monkeypatch):

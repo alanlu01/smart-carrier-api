@@ -1,11 +1,28 @@
-from datetime import datetime
-from typing import Any, Literal
+from datetime import UTC, datetime
+from typing import Any, Literal, overload
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
 TaskStatus = Literal["pending", "in_progress", "done", "cancelled", "failed"]
 TaskType = Literal["borrow", "return", "delivery", "navigation", "callbot"]
+
+
+@overload
+def ensure_utc(value: datetime) -> datetime: ...
+
+
+@overload
+def ensure_utc(value: None) -> None: ...
+
+
+def ensure_utc(value: datetime | None) -> datetime | None:
+    """Treat timezone-less Oracle timestamps as UTC and normalize aware values."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 class HealthResponse(BaseModel):
@@ -63,6 +80,11 @@ class Task(BaseModel):
     updated_at: datetime | None = None
     assigned_at: datetime | None = None
     completed_at: datetime | None = None
+
+    @field_validator("created_at", "updated_at", "assigned_at", "completed_at")
+    @classmethod
+    def normalize_timestamps(cls, value: datetime | None) -> datetime | None:
+        return ensure_utc(value)
 
 
 class ClaimedTask(Task):
@@ -127,6 +149,11 @@ class RobotSlotStatus(BaseModel):
     sensor_ok: bool
     updated_at: datetime | None = None
 
+    @field_validator("updated_at")
+    @classmethod
+    def normalize_timestamp(cls, value: datetime | None) -> datetime | None:
+        return ensure_utc(value)
+
 
 class RobotStatus(BaseModel):
     id: str
@@ -140,6 +167,11 @@ class RobotStatus(BaseModel):
     last_seen_at: datetime
     current_task_id: UUID | None = None
     slots: list[RobotSlotStatus]
+
+    @field_validator("last_seen_at")
+    @classmethod
+    def normalize_timestamp(cls, value: datetime) -> datetime:
+        return ensure_utc(value)
 
 
 class MessageResponse(BaseModel):
