@@ -16,7 +16,9 @@ class Settings(BaseSettings):
     oracle_wallet_password: SecretStr = SecretStr("")
     oracle_pool_max: int = Field(default=4, ge=1, le=16)
     robot_api_token: str = Field(default="dev-robot-token", min_length=8)
-    admin_api_token: str = Field(default="dev-admin-token", min_length=8)
+    admin_password_hash: SecretStr = SecretStr("")
+    admin_session_secret: SecretStr = SecretStr("")
+    admin_session_ttl_seconds: int = Field(default=1800, ge=300, le=86400)
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
 
     @property

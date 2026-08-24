@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, status
 
 from app import repository
 from app.schemas import Location, MessageResponse, RobotStatus, Task, TaskCreate
@@ -25,11 +25,6 @@ def create_order(payload: TaskCreate):
     if task is None:
         raise HTTPException(status_code=404, detail="Location not found")
     return task
-
-
-@router.get("/orders", response_model=list[Task])
-def list_orders(limit: int = Query(default=100, ge=1, le=500)):
-    return repository.list_orders(limit)
 
 
 @router.get("/orders/{task_id}", response_model=Task)

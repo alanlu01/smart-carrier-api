@@ -142,6 +142,16 @@ class ForceCancelResponse(BaseModel):
     outcome: Literal["cancelled", "cancellation_requested"]
 
 
+class AdminLoginRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+
+
+class AdminLoginResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in: int
+
+
 class Heartbeat(BaseModel):
     mode: str = Field(default="idle", max_length=32)
     battery: float | None = Field(default=None, ge=0, le=100)

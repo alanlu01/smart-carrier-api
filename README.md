@@ -79,12 +79,24 @@ ORACLE_WALLET_PASSWORD='wallet-download-password'
 ORACLE_POOL_MAX=4
 ORACLE_WALLET_HOST_PATH=/home/ubuntu/smart-carrier-secrets/oracle-wallet
 ROBOT_API_TOKEN='long-random-token'
-ADMIN_API_TOKEN='separate-long-random-token'
+ADMIN_PASSWORD_HASH='scrypt$...'
+ADMIN_SESSION_SECRET='separate-long-random-secret'
+ADMIN_SESSION_TTL_SECONDS=1800
 CORS_ORIGINS=https://alanlu01.github.io
 API_DOMAIN=:80
 ```
 
 Single-quote password and token values so Compose treats special characters literally. Never commit `.env`, the wallet, database credentials, or robot token.
+
+Generate the administrator password hash on a trusted machine, then place only the resulting
+`scrypt$...` value in `ADMIN_PASSWORD_HASH`:
+
+```bash
+python -c "from app.security import hash_admin_password; print(hash_admin_password('your-password'))"
+```
+
+The admin login returns a short-lived signed session. Failed login attempts are accepted four
+times; the fifth failure starts an exponentially increasing 30–300 second cooldown.
 
 ### Build and migrate
 

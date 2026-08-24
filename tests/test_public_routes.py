@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app import repository
 from app.main import app
-from app.security import require_admin_token, require_robot_token
+from app.security import require_admin_session, require_robot_token
 
 client = TestClient(app)
 
@@ -107,7 +107,7 @@ def test_admin_force_cancel_requires_admin_token():
 
 
 def test_admin_force_cancel_requests_robot_stop(monkeypatch):
-    monkeypatch.setitem(app.dependency_overrides, require_admin_token, lambda: None)
+    monkeypatch.setitem(app.dependency_overrides, require_admin_session, lambda: None)
     monkeypatch.setattr(
         repository,
         "force_cancel_order",
