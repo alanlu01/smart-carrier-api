@@ -5,6 +5,7 @@ from app.schemas import (
     ClaimedTask,
     Heartbeat,
     MessageResponse,
+    Task,
     TaskClaim,
     TaskRelease,
     TaskResult,
@@ -30,6 +31,14 @@ def claim_task(robot_id: str, payload: TaskClaim, response: Response):
     if task is None:
         response.status_code = status.HTTP_204_NO_CONTENT
         return None
+    return task
+
+
+@router.get("/{robot_id}/tasks/{task_id}", response_model=Task)
+def get_assigned_task(robot_id: str, task_id: str):
+    task = repository.get_robot_order(robot_id, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Assigned task not found")
     return task
 
 

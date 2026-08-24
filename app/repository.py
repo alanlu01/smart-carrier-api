@@ -9,7 +9,7 @@ LOCATION_COLUMNS = "code, name, description, floor, x, y, yaw"
 TASK_COLUMNS = """
     id, location_code, task_type, status, note, result_note,
     power_bank_id, required_charge, quantity, robot_id, created_at, updated_at,
-    assigned_at, completed_at
+    assigned_at, completed_at, cancel_requested_at, cancel_reason
 """
 
 
@@ -189,12 +189,23 @@ def get_order(task_id: str) -> dict[str, Any] | None:
         return _fetch_one(cursor)
 
 
+def get_robot_order(robot_id: str, task_id: str) -> dict[str, Any] | None:
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT {TASK_COLUMNS} FROM tasks WHERE id = :id AND robot_id = :robot_id",
+            id=task_id,
+            robot_id=robot_id,
+        )
+        return _fetch_one(cursor)
+
+
 def cancel_order(task_id: str) -> bool:
     with get_connection() as connection, connection.cursor() as cursor:
         cursor.execute(
             """
             UPDATE tasks
-            SET status = 'cancelled', updated_at = SYSTIMESTAMP
+            SET status = 'cancelled', completed_at = SYSTIMESTAMP,
+                updated_at = SYSTIMESTAMP
             WHERE id = :id AND status = 'pending'
             """,
             id=task_id,
@@ -202,6 +213,74 @@ def cancel_order(task_id: str) -> bool:
         changed = cursor.rowcount == 1
         connection.commit()
         return changed
+
+
+def force_cancel_order(task_id: str, reason: str | None = None) -> str | None:
+    """Cancel immediately when safe, otherwise request an active robot to stop first."""
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT status, robot_id
+            FROM tasks
+            WHERE id = :id
+            FOR UPDATE
+            """,
+            id=task_id,
+        )
+        task = cursor.fetchone()
+        if task is None:
+            return None
+        task_status, robot_id = task
+        if task_status == "pending":
+            cursor.execute(
+                """
+                UPDATE tasks
+                SET status = 'cancelled', result_note = :reason,
+                    cancel_requested_at = SYSTIMESTAMP, cancel_reason = :reason,
+                    completed_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP
+                WHERE id = :id AND status = 'pending'
+                """,
+                id=task_id,
+                reason=reason,
+            )
+            connection.commit()
+            return "cancelled" if cursor.rowcount == 1 else None
+        if task_status != "in_progress":
+            connection.rollback()
+            return None
+
+        last_seen_at = None
+        if robot_id:
+            cursor.execute("SELECT last_seen_at FROM robots WHERE id = :id", id=robot_id)
+            robot = cursor.fetchone()
+            last_seen_at = robot[0] if robot else None
+        if last_seen_at is None or not robot_is_online(last_seen_at):
+            cursor.execute(
+                """
+                UPDATE tasks
+                SET status = 'cancelled', result_note = :reason,
+                    cancel_requested_at = SYSTIMESTAMP, cancel_reason = :reason,
+                    completed_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP
+                WHERE id = :id AND status = 'in_progress'
+                """,
+                id=task_id,
+                reason=reason,
+            )
+            connection.commit()
+            return "cancelled" if cursor.rowcount == 1 else None
+
+        cursor.execute(
+            """
+            UPDATE tasks
+            SET cancel_requested_at = COALESCE(cancel_requested_at, SYSTIMESTAMP),
+                cancel_reason = :reason, updated_at = SYSTIMESTAMP
+            WHERE id = :id AND status = 'in_progress'
+            """,
+            id=task_id,
+            reason=reason,
+        )
+        connection.commit()
+        return "cancellation_requested" if cursor.rowcount == 1 else None
 
 
 def robot_is_online(last_seen_at: datetime, now: datetime | None = None) -> bool:
@@ -371,7 +450,8 @@ def claim_task(robot_id: str, payload: TaskClaim) -> dict[str, Any] | None:
                 """
                 UPDATE tasks
                 SET status = 'in_progress', robot_id = :robot_id,
-                    assigned_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP
+                    assigned_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP,
+                    cancel_requested_at = NULL, cancel_reason = NULL
                 WHERE id = :id AND status = 'pending'
                 """,
                 robot_id=robot_id,
@@ -398,8 +478,10 @@ def release_task(robot_id: str, task_id: str, note: str | None = None) -> bool:
             UPDATE tasks
             SET status = 'pending', robot_id = NULL, assigned_at = NULL,
                 completed_at = NULL, result_note = :release_note,
+                cancel_requested_at = NULL, cancel_reason = NULL,
                 updated_at = SYSTIMESTAMP
             WHERE id = :id AND robot_id = :robot_id AND status = 'in_progress'
+              AND cancel_requested_at IS NULL
             """,
             release_note=note,
             id=task_id,
@@ -425,5 +507,15 @@ def complete_task(robot_id: str, task_id: str, payload: TaskResult) -> bool:
             robot_id=robot_id,
         )
         changed = cursor.rowcount == 1
+        if not changed and payload.status == "cancelled":
+            cursor.execute(
+                """
+                SELECT 1 FROM tasks
+                WHERE id = :id AND robot_id = :robot_id AND status = 'cancelled'
+                """,
+                id=task_id,
+                robot_id=robot_id,
+            )
+            changed = cursor.fetchone() is not None
         connection.commit()
         return changed

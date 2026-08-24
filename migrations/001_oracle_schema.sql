@@ -36,6 +36,8 @@ BEGIN
       updated_at TIMESTAMP WITH TIME ZONE,
       assigned_at TIMESTAMP WITH TIME ZONE,
       completed_at TIMESTAMP WITH TIME ZONE,
+      cancel_requested_at TIMESTAMP WITH TIME ZONE,
+      cancel_reason VARCHAR2(500),
       CONSTRAINT ck_tasks_type CHECK (
         task_type IN ('borrow', 'return', 'delivery', 'navigation', 'callbot')
       ),
@@ -55,6 +57,20 @@ END;
 
 BEGIN
   EXECUTE IMMEDIATE 'ALTER TABLE tasks ADD (power_bank_id VARCHAR2(64))';
+EXCEPTION
+  WHEN OTHERS THEN IF SQLCODE != -1430 THEN RAISE; END IF;
+END;
+/
+
+BEGIN
+  EXECUTE IMMEDIATE 'ALTER TABLE tasks ADD (cancel_requested_at TIMESTAMP WITH TIME ZONE)';
+EXCEPTION
+  WHEN OTHERS THEN IF SQLCODE != -1430 THEN RAISE; END IF;
+END;
+/
+
+BEGIN
+  EXECUTE IMMEDIATE 'ALTER TABLE tasks ADD (cancel_reason VARCHAR2(500))';
 EXCEPTION
   WHEN OTHERS THEN IF SQLCODE != -1430 THEN RAISE; END IF;
 END;

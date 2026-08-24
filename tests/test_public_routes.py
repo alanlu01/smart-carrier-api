@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app import repository
 from app.main import app
-from app.security import require_robot_token
+from app.security import require_admin_token, require_robot_token
 
 client = TestClient(app)
 
@@ -95,6 +95,32 @@ def test_cancel_order_returns_conflict_after_task_starts(monkeypatch):
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Task cannot be cancelled"
+
+
+def test_admin_force_cancel_requires_admin_token():
+    response = client.post(
+        f"/api/v1/admin/orders/{uuid4()}/force-cancel",
+        json={"reason": "stop"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_admin_force_cancel_requests_robot_stop(monkeypatch):
+    monkeypatch.setitem(app.dependency_overrides, require_admin_token, lambda: None)
+    monkeypatch.setattr(
+        repository,
+        "force_cancel_order",
+        lambda _task_id, _reason: "cancellation_requested",
+    )
+
+    response = client.post(
+        f"/api/v1/admin/orders/{uuid4()}/force-cancel",
+        json={"reason": "stop"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "outcome": "cancellation_requested"}
 
 
 def test_public_robot_status_returns_live_slots_without_robot_token(monkeypatch):
@@ -234,3 +260,38 @@ def test_robot_release_returns_conflict_if_task_is_not_owned(monkeypatch):
     )
 
     assert response.status_code == 409
+
+
+def test_robot_can_read_cancel_request_for_its_assigned_task(monkeypatch):
+    task = task_record(
+        status="in_progress",
+        robot_id="R1",
+        cancel_requested_at=datetime.now(UTC),
+        cancel_reason="admin stop",
+    )
+    monkeypatch.setitem(app.dependency_overrides, require_robot_token, lambda: None)
+    monkeypatch.setattr(repository, "get_robot_order", lambda *_args: task)
+
+    response = client.get(f"/api/v1/robots/R1/tasks/{task['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["cancel_reason"] == "admin stop"
+    assert response.json()["cancel_requested_at"].endswith("Z")
+
+
+def test_robot_can_acknowledge_admin_cancellation(monkeypatch):
+    captured = {}
+    monkeypatch.setitem(app.dependency_overrides, require_robot_token, lambda: None)
+
+    def fake_complete(robot_id, task_id, payload):
+        captured.update(robot_id=robot_id, task_id=task_id, payload=payload)
+        return True
+
+    monkeypatch.setattr(repository, "complete_task", fake_complete)
+    response = client.post(
+        "/api/v1/robots/R1/tasks/task-1/result",
+        json={"status": "cancelled", "note": "Nav2 stopped"},
+    )
+
+    assert response.status_code == 200
+    assert captured["payload"].status == "cancelled"

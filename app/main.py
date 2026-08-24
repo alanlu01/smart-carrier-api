@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import close_pool, ping_database
-from app.routes import public, robot
+from app.routes import admin, public, robot
 from app.schemas import HealthResponse, ReadinessResponse
 
 settings = get_settings()
@@ -32,6 +32,7 @@ app.add_middleware(
 )
 app.include_router(public.router)
 app.include_router(robot.router)
+app.include_router(admin.router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])

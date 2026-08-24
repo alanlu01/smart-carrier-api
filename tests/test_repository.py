@@ -136,6 +136,68 @@ def test_cancel_order_only_updates_pending_tasks(monkeypatch):
     connection.commit.assert_called_once_with()
 
 
+def test_force_cancel_immediately_cancels_pending_task(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.return_value = ("pending", None)
+    cursor.rowcount = 1
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(repository, "get_connection", fake_connection)
+
+    assert repository.force_cancel_order("task-1", "admin") == "cancelled"
+    update_sql = cursor.execute.call_args_list[1].args[0]
+    assert "status = 'cancelled'" in update_sql
+    assert "completed_at = SYSTIMESTAMP" in update_sql
+
+
+def test_force_cancel_requests_stop_for_online_robot(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.side_effect = [
+        ("in_progress", "R1"),
+        (datetime.now(UTC),),
+    ]
+    cursor.rowcount = 1
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(repository, "get_connection", fake_connection)
+
+    assert repository.force_cancel_order("task-1", "admin") == "cancellation_requested"
+    update_sql = cursor.execute.call_args_list[2].args[0]
+    assert "cancel_requested_at" in update_sql
+    assert "status = 'cancelled'" not in update_sql
+
+
+def test_force_cancel_immediately_cancels_offline_robot_task(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.side_effect = [
+        ("in_progress", "R1"),
+        (datetime.now(UTC) - timedelta(minutes=1),),
+    ]
+    cursor.rowcount = 1
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(repository, "get_connection", fake_connection)
+
+    assert repository.force_cancel_order("task-1", "admin") == "cancelled"
+    update_sql = cursor.execute.call_args_list[2].args[0]
+    assert "status = 'cancelled'" in update_sql
+
+
 def test_release_task_only_requeues_task_owned_by_robot(monkeypatch):
     cursor = MagicMock()
     cursor.rowcount = 1

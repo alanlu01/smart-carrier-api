@@ -15,3 +15,15 @@ def require_robot_token(authorization: str | None = Header(default=None)) -> Non
         provided.encode("utf-8"), expected.encode("utf-8")
     ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid robot token")
+
+
+def require_admin_token(authorization: str | None = Header(default=None)) -> None:
+    expected = get_settings().admin_api_token
+    prefix = "Bearer "
+    provided = (
+        authorization[len(prefix) :] if authorization and authorization.startswith(prefix) else ""
+    )
+    if not provided or not secrets.compare_digest(
+        provided.encode("utf-8"), expected.encode("utf-8")
+    ):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin token")

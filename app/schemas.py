@@ -80,8 +80,12 @@ class Task(BaseModel):
     updated_at: datetime | None = None
     assigned_at: datetime | None = None
     completed_at: datetime | None = None
+    cancel_requested_at: datetime | None = None
+    cancel_reason: str | None = None
 
-    @field_validator("created_at", "updated_at", "assigned_at", "completed_at")
+    @field_validator(
+        "created_at", "updated_at", "assigned_at", "completed_at", "cancel_requested_at"
+    )
     @classmethod
     def normalize_timestamps(cls, value: datetime | None) -> datetime | None:
         return ensure_utc(value)
@@ -125,8 +129,17 @@ class TaskRelease(BaseModel):
 
 
 class TaskResult(BaseModel):
-    status: Literal["done", "failed"]
+    status: Literal["done", "failed", "cancelled"]
     note: str | None = Field(default=None, max_length=500)
+
+
+class ForceCancelRequest(BaseModel):
+    reason: str | None = Field(default="Cancelled by administrator", max_length=500)
+
+
+class ForceCancelResponse(BaseModel):
+    ok: bool = True
+    outcome: Literal["cancelled", "cancellation_requested"]
 
 
 class Heartbeat(BaseModel):

@@ -79,6 +79,7 @@ ORACLE_WALLET_PASSWORD='wallet-download-password'
 ORACLE_POOL_MAX=4
 ORACLE_WALLET_HOST_PATH=/home/ubuntu/smart-carrier-secrets/oracle-wallet
 ROBOT_API_TOKEN='long-random-token'
+ADMIN_API_TOKEN='separate-long-random-token'
 CORS_ORIGINS=https://alanlu01.github.io
 API_DOMAIN=:80
 ```
