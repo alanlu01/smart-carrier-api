@@ -28,6 +28,12 @@ uvicorn app.main:app --reload
 
 Database access is lazy, so `/health` and unit tests do not require Oracle credentials. `/ready` performs `SELECT 1 FROM dual` and returns 503 when the database is unavailable.
 
+Live robot state is available to the web client at `GET /api/v1/robots/R1`.
+Authenticated robot integrations use the task `claim`, `progress`, `result`, and
+`release` endpoints. Terminal requests include a UUID `event_id`, so retries are
+idempotent. Progress exposes the expected slot, an incorrectly changed slot, and
+the physical-action deadline without marking arrival as completion.
+
 ## Oracle Cloud VM
 
 Production runs as two Docker Compose services:

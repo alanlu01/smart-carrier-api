@@ -19,6 +19,11 @@ def get_robot_status(robot_id: str):
     return robot
 
 
+@router.get("/robots/{robot_id}", response_model=RobotStatus, include_in_schema=False)
+def get_robot_status_alias(robot_id: str):
+    return get_robot_status(robot_id)
+
+
 @router.post("/orders", response_model=Task, status_code=status.HTTP_201_CREATED)
 def create_order(payload: TaskCreate):
     task = repository.create_order(payload)

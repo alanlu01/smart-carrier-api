@@ -256,7 +256,10 @@ def test_robot_release_returns_conflict_if_task_is_not_owned(monkeypatch):
 
     response = client.post(
         "/api/v1/robots/R1/tasks/task-1/release",
-        json={"note": "inventory changed"},
+        json={
+            "event_id": "85af9ce7-6b7d-4a3d-8afb-155334a0aa4f",
+            "note": "inventory changed",
+        },
     )
 
     assert response.status_code == 409
@@ -290,7 +293,11 @@ def test_robot_can_acknowledge_admin_cancellation(monkeypatch):
     monkeypatch.setattr(repository, "complete_task", fake_complete)
     response = client.post(
         "/api/v1/robots/R1/tasks/task-1/result",
-        json={"status": "cancelled", "note": "Nav2 stopped"},
+        json={
+            "event_id": "dc6f5034-62ca-4bfc-89be-d28485b6d392",
+            "status": "cancelled",
+            "note": "Nav2 stopped",
+        },
     )
 
     assert response.status_code == 200

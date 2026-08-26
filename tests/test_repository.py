@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from app import repository
-from app.schemas import Heartbeat
+from app.schemas import Heartbeat, TaskRelease
 
 
 def test_heartbeat_avoids_reserved_mode_bind_name(monkeypatch):
@@ -95,6 +95,7 @@ def test_robot_status_always_returns_three_slots(monkeypatch):
             "slot": 1,
             "bank_id": "PB-01",
             "status": "ready",
+            "enabled": 1,
             "voltage": 5.0,
             "current_amps": 0.1,
             "charge": 96,
@@ -201,6 +202,7 @@ def test_force_cancel_immediately_cancels_offline_robot_task(monkeypatch):
 def test_release_task_only_requeues_task_owned_by_robot(monkeypatch):
     cursor = MagicMock()
     cursor.rowcount = 1
+    cursor.fetchone.return_value = None
     connection = MagicMock()
     connection.cursor.return_value.__enter__.return_value = cursor
 
@@ -210,15 +212,19 @@ def test_release_task_only_requeues_task_owned_by_robot(monkeypatch):
 
     monkeypatch.setattr(repository, "get_connection", fake_connection)
 
-    assert repository.release_task("R1", "task-1", "inventory changed") is True
+    payload = TaskRelease(
+        event_id="85af9ce7-6b7d-4a3d-8afb-155334a0aa4f",
+        note="inventory changed",
+    )
+    assert repository.release_task("R1", "task-1", payload) is True
 
-    sql = cursor.execute.call_args.args[0]
-    bind_values = cursor.execute.call_args.kwargs
+    sql = cursor.execute.call_args_list[1].args[0]
+    bind_values = cursor.execute.call_args_list[1].kwargs
     assert "status = 'pending'" in sql
     assert "robot_id = NULL" in sql
     assert "status = 'in_progress'" in sql
     assert bind_values == {
-        "release_note": "inventory changed",
+        "result_note": "inventory changed",
         "id": "task-1",
         "robot_id": "R1",
     }

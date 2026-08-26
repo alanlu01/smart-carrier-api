@@ -1,15 +1,26 @@
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 from app.database import get_connection
-from app.schemas import Heartbeat, TaskClaim, TaskClaimSlot, TaskCreate, TaskResult
+from app.schemas import (
+    Heartbeat,
+    TaskClaim,
+    TaskClaimSlot,
+    TaskCreate,
+    TaskProgress,
+    TaskRelease,
+    TaskResult,
+)
 
 LOCATION_COLUMNS = "code, name, description, floor, x, y, yaw"
 TASK_COLUMNS = """
     id, location_code, task_type, status, note, result_note,
     power_bank_id, required_charge, quantity, robot_id, created_at, updated_at,
-    assigned_at, completed_at, cancel_requested_at, cancel_reason
+    assigned_at, completed_at, cancel_requested_at, cancel_reason,
+    progress_state, progress_message,
+    expected_slot, changed_slot, action_deadline, progress_updated_at
 """
 
 
@@ -325,7 +336,7 @@ def get_robot_status(robot_id: str) -> dict[str, Any] | None:
 
         cursor.execute(
             """
-            SELECT slot_number AS slot, bank_id, status,
+            SELECT slot_number AS slot, bank_id, status, enabled,
                    voltage_volts AS voltage, current_amps AS current_amps,
                    charge, sensor_ok, updated_at
             FROM power_slots
@@ -343,6 +354,7 @@ def get_robot_status(robot_id: str) -> dict[str, Any] | None:
                     "slot": slot_number,
                     "bank_id": None,
                     "status": "unknown",
+                    "enabled": True,
                     "voltage": None,
                     "current_amps": None,
                     "charge": None,
@@ -354,6 +366,8 @@ def get_robot_status(robot_id: str) -> dict[str, Any] | None:
         ]
         for slot in robot["slots"]:
             slot["current"] = slot.pop("current_amps")
+            slot["enabled"] = bool(slot.get("enabled", True))
+            slot["sensor_ok"] = bool(slot["sensor_ok"])
         return robot
 
 
@@ -405,25 +419,27 @@ def record_heartbeat(robot_id: str, payload: Heartbeat) -> None:
                 WHEN MATCHED THEN UPDATE SET
                     bank_id = :bank_id,
                     status = :status,
-                    voltage_volts = :voltage_volts,
-                    current_amps = :current_amps,
-                    charge = :charge,
+                    enabled = :enabled,
                     sensor_ok = :sensor_ok,
+                    current_amps = :current_amps,
+                    voltage_volts = :voltage_volts,
+                    charge = :charge,
                     updated_at = :updated_at
                 WHEN NOT MATCHED THEN INSERT (
                     robot_id, slot_number, bank_id, status,
-                    voltage_volts, current_amps, charge, sensor_ok, updated_at
+                    enabled, sensor_ok, current_amps, voltage_volts, charge, updated_at
                 ) VALUES (
                     :robot_id, :slot_number, :bank_id, :status,
-                    :voltage_volts, :current_amps, :charge, :sensor_ok, :updated_at
+                    :enabled, :sensor_ok, :current_amps, :voltage_volts, :charge, :updated_at
                 )
                 """,
                 robot_id=robot_id,
                 slot_number=slot_number,
                 bank_id=str(bank_id) if bank_id is not None else None,
                 status=str(slot.get("status", "unknown")),
-                voltage_volts=slot.get("voltage"),
+                enabled=1 if slot.get("enabled", True) else 0,
                 current_amps=slot.get("current"),
+                voltage_volts=slot.get("voltage"),
                 charge=slot.get("charge"),
                 sensor_ok=1 if slot.get("sensor_ok", True) else 0,
                 updated_at=now,
@@ -471,29 +487,11 @@ def claim_task(robot_id: str, payload: TaskClaim) -> dict[str, Any] | None:
         return None
 
 
-def release_task(robot_id: str, task_id: str, note: str | None = None) -> bool:
-    with get_connection() as connection, connection.cursor() as cursor:
-        cursor.execute(
-            """
-            UPDATE tasks
-            SET status = 'pending', robot_id = NULL, assigned_at = NULL,
-                completed_at = NULL, result_note = :release_note,
-                cancel_requested_at = NULL, cancel_reason = NULL,
-                updated_at = SYSTIMESTAMP
-            WHERE id = :id AND robot_id = :robot_id AND status = 'in_progress'
-              AND cancel_requested_at IS NULL
-            """,
-            release_note=note,
-            id=task_id,
-            robot_id=robot_id,
-        )
-        changed = cursor.rowcount == 1
-        connection.commit()
-        return changed
-
-
 def complete_task(robot_id: str, task_id: str, payload: TaskResult) -> bool:
     with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT 1 FROM robot_events WHERE id = :id", id=str(payload.event_id))
+        if cursor.fetchone() is not None:
+            return True
         cursor.execute(
             """
             UPDATE tasks
@@ -517,5 +515,85 @@ def complete_task(robot_id: str, task_id: str, payload: TaskResult) -> bool:
                 robot_id=robot_id,
             )
             changed = cursor.fetchone() is not None
+        if changed:
+            cursor.execute(
+                """
+                INSERT INTO robot_events(id, robot_id, task_id, event_type, payload)
+                VALUES (:id, :robot_id, :task_id, 'task_result', :payload)
+                """,
+                id=str(payload.event_id),
+                robot_id=robot_id,
+                task_id=task_id,
+                payload=json.dumps(payload.model_dump(mode="json"), ensure_ascii=False),
+            )
+        connection.commit()
+        return changed
+
+
+def release_task(robot_id: str, task_id: str, payload: TaskRelease) -> bool:
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT 1 FROM robot_events WHERE id = :id", id=str(payload.event_id))
+        if cursor.fetchone() is not None:
+            return True
+        cursor.execute(
+            """
+            UPDATE tasks
+            SET status = 'pending', robot_id = NULL, assigned_at = NULL,
+                completed_at = NULL, result_note = :result_note,
+                cancel_requested_at = NULL, cancel_reason = NULL,
+                updated_at = SYSTIMESTAMP,
+                progress_state = NULL, progress_message = NULL,
+                expected_slot = NULL, changed_slot = NULL,
+                action_deadline = NULL, progress_updated_at = NULL
+            WHERE id = :id AND robot_id = :robot_id AND status = 'in_progress'
+              AND cancel_requested_at IS NULL
+            """,
+            result_note=payload.note,
+            id=task_id,
+            robot_id=robot_id,
+        )
+        changed = cursor.rowcount == 1
+        if changed:
+            cursor.execute(
+                """
+                INSERT INTO robot_events(id, robot_id, task_id, event_type, payload)
+                VALUES (:id, :robot_id, :task_id, 'task_released', :payload)
+                """,
+                id=str(payload.event_id),
+                robot_id=robot_id,
+                task_id=task_id,
+                payload=json.dumps(payload.model_dump(mode="json"), ensure_ascii=False),
+            )
+        connection.commit()
+        return changed
+
+
+def record_task_progress(robot_id: str, task_id: str, payload: TaskProgress) -> bool:
+    if str(payload.task_id) != task_id:
+        return False
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE tasks
+            SET progress_state = :progress_state,
+                progress_message = :progress_message,
+                expected_slot = :expected_slot,
+                changed_slot = :changed_slot,
+                action_deadline = :action_deadline,
+                progress_event_id = :progress_event_id,
+                progress_updated_at = SYSTIMESTAMP,
+                updated_at = SYSTIMESTAMP
+            WHERE id = :id AND robot_id = :robot_id AND status = 'in_progress'
+            """,
+            progress_state=payload.progress_state,
+            progress_message=payload.progress_message,
+            expected_slot=payload.expected_slot,
+            changed_slot=payload.changed_slot,
+            action_deadline=payload.action_deadline,
+            progress_event_id=str(payload.event_id),
+            id=task_id,
+            robot_id=robot_id,
+        )
+        changed = cursor.rowcount == 1
         connection.commit()
         return changed

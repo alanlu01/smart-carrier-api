@@ -19,9 +19,7 @@ client = TestClient(app)
 
 def admin_settings(password: str = "test-admin-password"):
     return SimpleNamespace(
-        admin_password_hash=SecretStr(
-            hash_admin_password(password, salt=b"0123456789abcdef")
-        ),
+        admin_password_hash=SecretStr(hash_admin_password(password, salt=b"0123456789abcdef")),
         admin_session_secret=SecretStr("test-admin-session-secret-with-enough-entropy"),
         admin_session_ttl_seconds=1800,
     )

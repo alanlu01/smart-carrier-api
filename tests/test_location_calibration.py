@@ -19,12 +19,7 @@ def test_location_calibration_defaults_to_dry_run(monkeypatch, capsys):
         lambda *args: apply_calls.append(args),
     )
 
-    assert (
-        location_calibration.main(
-            ["a1", "1.2", "2.3", "0.5", "--name", "門口"]
-        )
-        == 0
-    )
+    assert location_calibration.main(["a1", "1.2", "2.3", "0.5", "--name", "門口"]) == 0
     assert not apply_calls
     output = capsys.readouterr().out
     assert '"name": "門口"' in output
@@ -43,11 +38,6 @@ def test_location_calibration_applies_explicitly(monkeypatch, capsys):
 
     monkeypatch.setattr(repository, "update_location_coordinates", apply_update)
 
-    assert (
-        location_calibration.main(
-            ["A1", "1.2", "2.3", "0.5", "--name", "門口", "--apply"]
-        )
-        == 0
-    )
+    assert location_calibration.main(["A1", "1.2", "2.3", "0.5", "--name", "門口", "--apply"]) == 0
     assert apply_calls == [(("A1", 1.2, 2.3, 0.5), {"name": "門口"})]
     assert '"updated"' in capsys.readouterr().out

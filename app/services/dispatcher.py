@@ -17,7 +17,13 @@ def select_power_bank(
         bank_id = bank.get("bank_id") or bank.get("id")
         if power_bank_id is not None and bank_id != power_bank_id:
             continue
-        charge = float(bank.get("charge", 101))
+        raw_charge = bank.get("charge")
+        if raw_charge is None:
+            if required_charge > 0 and bank["status"] != "full":
+                continue
+            charge = 100.0 if bank["status"] == "full" else 101.0
+        else:
+            charge = float(raw_charge)
         if charge < required_charge:
             continue
         candidates.append((BORROWABLE[bank["status"]], charge, index, bank))

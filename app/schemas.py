@@ -82,9 +82,21 @@ class Task(BaseModel):
     completed_at: datetime | None = None
     cancel_requested_at: datetime | None = None
     cancel_reason: str | None = None
+    progress_state: str | None = None
+    progress_message: str | None = None
+    expected_slot: int | None = None
+    changed_slot: int | None = None
+    action_deadline: datetime | None = None
+    progress_updated_at: datetime | None = None
 
     @field_validator(
-        "created_at", "updated_at", "assigned_at", "completed_at", "cancel_requested_at"
+        "created_at",
+        "updated_at",
+        "assigned_at",
+        "completed_at",
+        "cancel_requested_at",
+        "action_deadline",
+        "progress_updated_at",
     )
     @classmethod
     def normalize_timestamps(cls, value: datetime | None) -> datetime | None:
@@ -98,9 +110,10 @@ class ClaimedTask(Task):
 class TaskClaimSlot(BaseModel):
     slot: int = Field(ge=1, le=3)
     bank_id: str | None = Field(default=None, max_length=64)
-    status: Literal["empty", "low", "ready", "full", "unknown"]
+    status: Literal["empty", "low", "ready", "full", "unknown", "disabled"]
     charge: int | None = Field(default=None, ge=0, le=100)
     sensor_ok: bool = True
+    enabled: bool = True
 
     @field_validator("bank_id")
     @classmethod
@@ -125,10 +138,12 @@ class TaskClaim(BaseModel):
 
 
 class TaskRelease(BaseModel):
+    event_id: UUID
     note: str | None = Field(default=None, max_length=500)
 
 
 class TaskResult(BaseModel):
+    event_id: UUID
     status: Literal["done", "failed", "cancelled"]
     note: str | None = Field(default=None, max_length=500)
 
@@ -152,6 +167,17 @@ class AdminLoginResponse(BaseModel):
     expires_in: int
 
 
+class TaskProgress(BaseModel):
+    event_id: UUID
+    task_id: UUID
+    progress_state: str = Field(min_length=1, max_length=32)
+    progress_message: str | None = Field(default=None, max_length=500)
+    expected_slot: int | None = Field(default=None, ge=1, le=3)
+    changed_slot: int | None = Field(default=None, ge=1, le=3)
+    action_deadline: datetime | None = None
+    warning: bool = False
+
+
 class Heartbeat(BaseModel):
     mode: str = Field(default="idle", max_length=32)
     battery: float | None = Field(default=None, ge=0, le=100)
@@ -165,7 +191,8 @@ class Heartbeat(BaseModel):
 class RobotSlotStatus(BaseModel):
     slot: int = Field(ge=1, le=3)
     bank_id: str | None = None
-    status: Literal["empty", "low", "ready", "full", "unknown"]
+    status: Literal["empty", "low", "ready", "full", "unknown", "disabled"]
+    enabled: bool = True
     voltage: float | None = None
     current: float | None = None
     charge: int | None = Field(default=None, ge=0, le=100)

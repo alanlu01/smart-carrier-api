@@ -4,11 +4,12 @@ from app.migrations import MIGRATION_FILE, split_statements
 def test_oracle_migration_contains_schema_and_seed_statements():
     migration = MIGRATION_FILE.read_text(encoding="utf-8")
     statements = split_statements(migration)
-    assert len(statements) == 16
-    assert sum(statement.startswith("BEGIN") for statement in statements) == 12
+    assert len(statements) == 15
+    assert sum(statement.startswith("BEGIN") for statement in statements) == 11
     assert sum(statement.startswith("MERGE INTO locations") for statement in statements) == 4
     assert "voltage_volts NUMBER" in migration
     assert "sensor_ok NUMBER(1)" in migration
+    assert "enabled NUMBER(1)" in migration
     assert "power_bank_id VARCHAR2(64)" in migration
     assert "cancel_requested_at TIMESTAMP WITH TIME ZONE" in migration
     assert "cancel_reason VARCHAR2(500)" in migration
