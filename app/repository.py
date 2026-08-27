@@ -320,19 +320,25 @@ def get_robot_status(robot_id: str) -> dict[str, Any] | None:
 
         cursor.execute(
             """
-            SELECT id
-            FROM (
-                SELECT id
-                FROM tasks
-                WHERE robot_id = :robot_id AND status = 'in_progress'
-                ORDER BY assigned_at DESC
-            )
-            WHERE ROWNUM = 1
+            SELECT id, progress_state
+            FROM tasks
+            WHERE robot_id = :robot_id AND status = 'in_progress'
+            ORDER BY
+                CASE
+                    WHEN progress_state IN (
+                        'precheck', 'navigating', 'arrived', 'waiting_action',
+                        'wrong_slot', 'verifying_action', 'result_pending',
+                        'recovery_required'
+                    ) THEN 0
+                    ELSE 1
+                END,
+                assigned_at ASC
             """,
             robot_id=robot_id,
         )
-        task_row = cursor.fetchone()
-        robot["current_task_id"] = task_row[0] if task_row else None
+        claimed_task_rows = cursor.fetchall()
+        robot["claimed_task_ids"] = [row[0] for row in claimed_task_rows]
+        robot["current_task_id"] = claimed_task_rows[0][0] if claimed_task_rows else None
 
         cursor.execute(
             """

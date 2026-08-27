@@ -216,6 +216,7 @@ class RobotStatus(BaseModel):
     yaw: float | None = None
     last_seen_at: datetime
     current_task_id: UUID | None = None
+    claimed_task_ids: list[UUID] = Field(default_factory=list)
     slots: list[RobotSlotStatus]
 
     @field_validator("last_seen_at")

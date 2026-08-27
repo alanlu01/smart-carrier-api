@@ -72,7 +72,7 @@ def test_robot_online_requires_recent_heartbeat():
 
 def test_robot_status_always_returns_three_slots(monkeypatch):
     cursor = MagicMock()
-    cursor.fetchone.return_value = ("task-1",)
+    cursor.fetchall.return_value = [("task-1", "navigating"), ("task-2", "queued_on_robot")]
     connection = MagicMock()
     connection.cursor.return_value.__enter__.return_value = cursor
 
@@ -111,10 +111,14 @@ def test_robot_status_always_returns_three_slots(monkeypatch):
 
     assert status["mode"] == "dispatching"
     assert status["current_task_id"] == "task-1"
+    assert status["claimed_task_ids"] == ["task-1", "task-2"]
     assert len(status["slots"]) == 3
     assert status["slots"][0]["current"] == 0.1
     assert status["slots"][1]["status"] == "unknown"
     assert status["slots"][1]["sensor_ok"] is False
+    task_query = cursor.execute.call_args_list[1].args[0]
+    assert "progress_state IN" in task_query
+    assert "assigned_at ASC" in task_query
 
 
 def test_cancel_order_only_updates_pending_tasks(monkeypatch):
