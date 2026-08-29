@@ -10,6 +10,7 @@ def test_oracle_migration_contains_schema_and_seed_statements():
     assert "voltage_volts NUMBER" in migration
     assert "sensor_ok NUMBER(1)" in migration
     assert "enabled NUMBER(1)" in migration
+    assert "UPDATE power_slots SET enabled = 0 WHERE status = 'disabled'" in migration
     assert "power_bank_id VARCHAR2(64)" in migration
     assert "cancel_requested_at TIMESTAMP WITH TIME ZONE" in migration
     assert "cancel_reason VARCHAR2(500)" in migration

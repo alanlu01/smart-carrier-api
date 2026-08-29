@@ -450,7 +450,7 @@ def record_heartbeat(robot_id: str, payload: Heartbeat) -> None:
                 slot_number=slot_number,
                 bank_id=str(bank_id) if bank_id is not None else None,
                 status=str(slot.get("status", "unknown")),
-                enabled=1 if slot.get("enabled", True) else 0,
+                enabled=(1 if slot.get("enabled", slot.get("status") != "disabled") else 0),
                 current_amps=slot.get("current"),
                 voltage_volts=slot.get("voltage"),
                 charge=slot.get("charge"),

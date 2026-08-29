@@ -63,6 +63,24 @@ def test_heartbeat_persists_voltage_and_sensor_health(monkeypatch):
     assert slot_call.kwargs["sensor_ok"] == 1
 
 
+def test_heartbeat_treats_legacy_disabled_slot_as_not_enabled(monkeypatch):
+    cursor = MagicMock()
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(repository, "get_connection", fake_connection)
+    repository.record_heartbeat(
+        "R1",
+        Heartbeat(slots=[{"slot": 3, "status": "disabled", "sensor_ok": True}]),
+    )
+
+    assert cursor.execute.call_args_list[1].kwargs["enabled"] == 0
+
+
 def test_robot_online_requires_recent_heartbeat():
     now = datetime.now(UTC)
 
