@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from app import repository
-from app.schemas import Heartbeat, TaskRelease
+from app.schemas import Heartbeat, TaskProgress, TaskRelease
 
 
 def test_heartbeat_avoids_reserved_mode_bind_name(monkeypatch):
@@ -233,3 +233,48 @@ def test_release_task_only_requeues_task_owned_by_robot(monkeypatch):
         "robot_id": "R1",
     }
     connection.commit.assert_called_once_with()
+
+
+def test_task_row_decodes_changed_slots_and_exposes_progress_event_id():
+    cursor = MagicMock()
+    cursor.description = [
+        ("CHANGED_SLOTS",),
+        ("PROGRESS_EVENT_ID",),
+    ]
+
+    row = repository._row_as_dict(
+        cursor,
+        ("2,3", "85af9ce7-6b7d-4a3d-8afb-155334a0aa4f"),
+    )
+
+    assert row["changed_slots"] == [2, 3]
+    assert row["progress_event_id"] == "85af9ce7-6b7d-4a3d-8afb-155334a0aa4f"
+
+
+def test_record_task_progress_persists_all_changed_slots(monkeypatch):
+    cursor = MagicMock()
+    cursor.rowcount = 1
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(repository, "get_connection", fake_connection)
+    payload = TaskProgress(
+        event_id="85af9ce7-6b7d-4a3d-8afb-155334a0aa4f",
+        task_id="95af9ce7-6b7d-4a3d-8afb-155334a0aa4f",
+        progress_state="wrong_slot",
+        expected_slot=1,
+        changed_slot=2,
+        changed_slots=[3, 2, 2],
+    )
+
+    assert repository.record_task_progress("R1", str(payload.task_id), payload) is True
+
+    sql = cursor.execute.call_args.args[0]
+    binds = cursor.execute.call_args.kwargs
+    assert "changed_slots = :changed_slots" in sql
+    assert binds["changed_slots"] == "2,3"
+    assert binds["progress_event_id"] == str(payload.event_id)

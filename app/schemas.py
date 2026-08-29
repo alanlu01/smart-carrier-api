@@ -86,7 +86,9 @@ class Task(BaseModel):
     progress_message: str | None = None
     expected_slot: int | None = None
     changed_slot: int | None = None
+    changed_slots: list[int] = Field(default_factory=list)
     action_deadline: datetime | None = None
+    progress_event_id: UUID | None = None
     progress_updated_at: datetime | None = None
 
     @field_validator(
@@ -174,8 +176,17 @@ class TaskProgress(BaseModel):
     progress_message: str | None = Field(default=None, max_length=500)
     expected_slot: int | None = Field(default=None, ge=1, le=3)
     changed_slot: int | None = Field(default=None, ge=1, le=3)
+    changed_slots: list[int] = Field(default_factory=list, max_length=3)
     action_deadline: datetime | None = None
     warning: bool = False
+
+    @field_validator("changed_slots")
+    @classmethod
+    def validate_changed_slots(cls, slots: list[int]) -> list[int]:
+        normalized = sorted(set(slots))
+        if any(slot < 1 or slot > 3 for slot in normalized):
+            raise ValueError("changed_slots values must be between 1 and 3")
+        return normalized
 
 
 class Heartbeat(BaseModel):

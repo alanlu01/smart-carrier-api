@@ -20,7 +20,8 @@ TASK_COLUMNS = """
     power_bank_id, required_charge, quantity, robot_id, created_at, updated_at,
     assigned_at, completed_at, cancel_requested_at, cancel_reason,
     progress_state, progress_message,
-    expected_slot, changed_slot, action_deadline, progress_updated_at
+    expected_slot, changed_slot, changed_slots, action_deadline,
+    progress_event_id, progress_updated_at
 """
 
 
@@ -78,7 +79,13 @@ def _row_as_dict(cursor, row) -> dict[str, Any] | None:
     if row is None:
         return None
     columns = [column[0].lower() for column in cursor.description]
-    return dict(zip(columns, row, strict=True))
+    result = dict(zip(columns, row, strict=True))
+    if "changed_slots" in result:
+        raw_slots = result["changed_slots"]
+        result["changed_slots"] = (
+            [int(slot) for slot in str(raw_slots).split(",") if slot] if raw_slots else []
+        )
+    return result
 
 
 def _fetch_one(cursor) -> dict[str, Any] | None:
@@ -549,8 +556,9 @@ def release_task(robot_id: str, task_id: str, payload: TaskRelease) -> bool:
                 cancel_requested_at = NULL, cancel_reason = NULL,
                 updated_at = SYSTIMESTAMP,
                 progress_state = NULL, progress_message = NULL,
-                expected_slot = NULL, changed_slot = NULL,
-                action_deadline = NULL, progress_updated_at = NULL
+                expected_slot = NULL, changed_slot = NULL, changed_slots = NULL,
+                action_deadline = NULL, progress_event_id = NULL,
+                progress_updated_at = NULL
             WHERE id = :id AND robot_id = :robot_id AND status = 'in_progress'
               AND cancel_requested_at IS NULL
             """,
@@ -585,6 +593,7 @@ def record_task_progress(robot_id: str, task_id: str, payload: TaskProgress) -> 
                 progress_message = :progress_message,
                 expected_slot = :expected_slot,
                 changed_slot = :changed_slot,
+                changed_slots = :changed_slots,
                 action_deadline = :action_deadline,
                 progress_event_id = :progress_event_id,
                 progress_updated_at = SYSTIMESTAMP,
@@ -595,6 +604,7 @@ def record_task_progress(robot_id: str, task_id: str, payload: TaskProgress) -> 
             progress_message=payload.progress_message,
             expected_slot=payload.expected_slot,
             changed_slot=payload.changed_slot,
+            changed_slots=",".join(str(slot) for slot in payload.changed_slots) or None,
             action_deadline=payload.action_deadline,
             progress_event_id=str(payload.event_id),
             id=task_id,
