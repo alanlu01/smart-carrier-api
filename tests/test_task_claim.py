@@ -79,3 +79,19 @@ def test_claim_snapshot_requires_each_of_the_three_slots_once():
                 {"slot": 3, "status": "empty", "charge": 0},
             ]
         )
+
+
+@pytest.mark.parametrize("status,kind", [("full", "borrow"), ("empty", "return")])
+def test_disabled_and_failed_sensors_are_not_claimable(status, kind):
+    slots = three_slots((status, 100), ("unknown", None), ("unknown", None))
+    slots[0].enabled = False
+    assert not task_is_compatible(kind, None, 1, slots)
+    slots[0].enabled = True
+    slots[0].sensor_ok = False
+    assert not task_is_compatible(kind, None, 1, slots)
+
+
+def test_unknown_ready_charge_cannot_satisfy_minimum_charge():
+    slots = three_slots(("ready", None), ("unknown", None), ("unknown", None))
+    assert not task_is_compatible("borrow", 80, 1, slots)
+    assert task_is_compatible("borrow", 0, 1, slots)

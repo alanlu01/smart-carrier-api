@@ -197,3 +197,40 @@ docker compose -f compose.oracle.yml down
 ```
 
 `docker compose down` preserves named volumes unless `--volumes` is explicitly supplied.
+
+### Queue and physical-action contract
+
+Each order has `quantity=1`. A robot must send a heartbeat before claiming.
+Claims lock the robot row in Oracle and retain at most three `in_progress` orders,
+including orders awaiting cancellation or result synchronization. New claims expose
+`progress_state=queued_on_robot`. `claimed_task_ids` contains every retained order;
+`current_task_id` is set only when a task has started its execution stages. A second
+order cannot enter an execution stage until the first reaches a terminal state.
+The bridge supplies projected inventory after its existing slot reservations.
+
+`arrived`, `waiting_action`, `verifying_action`, and `result_pending` are not terminal.
+Only the robot result endpoint changes an executing order to `done`, `failed`, or
+`cancelled`. Progress persists `warning`, `expected_slot`, `changed_slot`,
+`changed_slots`, and the UTC `action_deadline`. Active cancellations always wait for
+a robot acknowledgement, including while the heartbeat is offline.
+
+Slot availability uses both `enabled` and `sensor_ok`. `empty` has charge 0,
+`full` has charge 100, and `low`, `unknown`, or `disabled` have null charge.
+A `ready` slot with an unknown charge cannot satisfy a positive minimum charge.
+
+### Verify Oracle queue behavior without moving a robot
+
+After deployment and migration, run the optional integration check in an environment
+with the API dependencies and `httpx` installed:
+
+```bash
+python scripts/verify_oracle_queue.py
+```
+
+It creates five uniquely named disposable `qa_*` tables in the configured Oracle
+schema, runs FastAPI requests against those tables, and drops them in `finally`.
+It checks four concurrent claims, capacity three, FIFO refill, persistent queue
+reads, one executing task, result retries, wrong-slot warnings, and safe cancellation.
+It never creates production orders or sends robot commands. DDL permissions are required.
+This is an Oracle/API integration check; physical bridge restart and INA3221 validation
+must still be performed with the actual robot online.

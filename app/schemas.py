@@ -52,7 +52,7 @@ class TaskCreate(BaseModel):
     note: str | None = Field(default=None, max_length=500)
     power_bank_id: str | None = Field(default=None, min_length=1, max_length=64)
     required_charge: int | None = Field(default=None, ge=0, le=100)
-    quantity: int = Field(default=1, ge=1, le=3)
+    quantity: int = Field(default=1, ge=1, le=1)
 
     @field_validator("power_bank_id")
     @classmethod
@@ -82,6 +82,7 @@ class Task(BaseModel):
     completed_at: datetime | None = None
     cancel_requested_at: datetime | None = None
     cancel_reason: str | None = None
+    warning: bool = False
     progress_state: str | None = None
     progress_message: str | None = None
     expected_slot: int | None = None

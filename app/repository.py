@@ -19,7 +19,7 @@ TASK_COLUMNS = """
     id, location_code, task_type, status, note, result_note,
     power_bank_id, required_charge, quantity, robot_id, created_at, updated_at,
     assigned_at, completed_at, cancel_requested_at, cancel_reason,
-    progress_state, progress_message,
+    progress_state, progress_message, warning,
     expected_slot, changed_slot, changed_slots, action_deadline,
     progress_event_id, progress_updated_at
 """
@@ -31,6 +31,40 @@ class LocationHasActiveTasks(RuntimeError):
 
 NAVIGATION_ONLY_TASK_TYPES = {"delivery", "navigation", "callbot"}
 ROBOT_ONLINE_TIMEOUT_SECONDS = 15
+MAX_CLAIMED_TASKS = 3
+EXECUTING_PROGRESS_STATES = {
+    "precheck",
+    "navigating",
+    "arrived",
+    "waiting_action",
+    "wrong_slot",
+    "verifying_action",
+    "result_pending",
+    "recovery_required",
+}
+
+
+def normalize_slot(slot: dict[str, Any]) -> dict[str, Any]:
+    slot = dict(slot)
+    slot["enabled"] = bool(slot.get("enabled", slot.get("status") != "disabled"))
+    slot["sensor_ok"] = bool(slot.get("sensor_ok", False))
+    if not slot["enabled"] or slot.get("status") == "disabled":
+        slot.update(status="disabled", enabled=False, charge=None)
+    elif not slot["sensor_ok"] or slot.get("status") not in {
+        "empty",
+        "low",
+        "ready",
+        "full",
+        "unknown",
+    }:
+        slot.update(status="unknown", charge=None)
+    elif slot["status"] in {"low", "unknown"}:
+        slot["charge"] = None
+    elif slot["status"] == "empty":
+        slot["charge"] = 0
+    elif slot["status"] == "full":
+        slot["charge"] = 100
+    return slot
 
 
 def task_is_compatible(
@@ -45,7 +79,11 @@ def task_is_compatible(
         return False
     if task_type in NAVIGATION_ONLY_TASK_TYPES:
         return True
-    healthy_slots = [slot for slot in slots if slot.sensor_ok and slot.status != "unknown"]
+    healthy_slots = [
+        slot
+        for slot in slots
+        if slot.enabled and slot.sensor_ok and slot.status not in {"unknown", "disabled"}
+    ]
     if task_type == "return":
         return any(slot.status == "empty" for slot in healthy_slots)
     if task_type == "borrow":
@@ -53,7 +91,10 @@ def task_is_compatible(
         return any(
             slot.status in {"ready", "full"}
             and (power_bank_id is None or slot.bank_id == power_bank_id)
-            and (slot.charge is None or slot.charge >= minimum_charge)
+            and (
+                (slot.charge is None and (minimum_charge == 0 or slot.status == "full"))
+                or (slot.charge is not None and slot.charge >= minimum_charge)
+            )
             for slot in healthy_slots
         )
     return False
@@ -98,9 +139,7 @@ def _fetch_all(cursor) -> list[dict[str, Any]]:
 
 def list_locations() -> list[dict[str, Any]]:
     with get_connection() as connection, connection.cursor() as cursor:
-        cursor.execute(
-            f"SELECT {LOCATION_COLUMNS} FROM locations WHERE enabled = 1 ORDER BY code"
-        )
+        cursor.execute(f"SELECT {LOCATION_COLUMNS} FROM locations WHERE enabled = 1 ORDER BY code")
         return _fetch_all(cursor)
 
 
@@ -272,26 +311,6 @@ def force_cancel_order(task_id: str, reason: str | None = None) -> str | None:
             connection.rollback()
             return None
 
-        last_seen_at = None
-        if robot_id:
-            cursor.execute("SELECT last_seen_at FROM robots WHERE id = :id", id=robot_id)
-            robot = cursor.fetchone()
-            last_seen_at = robot[0] if robot else None
-        if last_seen_at is None or not robot_is_online(last_seen_at):
-            cursor.execute(
-                """
-                UPDATE tasks
-                SET status = 'cancelled', result_note = :reason,
-                    cancel_requested_at = SYSTIMESTAMP, cancel_reason = :reason,
-                    completed_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP
-                WHERE id = :id AND status = 'in_progress'
-                """,
-                id=task_id,
-                reason=reason,
-            )
-            connection.commit()
-            return "cancelled" if cursor.rowcount == 1 else None
-
         cursor.execute(
             """
             UPDATE tasks
@@ -350,7 +369,10 @@ def get_robot_status(robot_id: str) -> dict[str, Any] | None:
         )
         claimed_task_rows = cursor.fetchall()
         robot["claimed_task_ids"] = [row[0] for row in claimed_task_rows]
-        robot["current_task_id"] = claimed_task_rows[0][0] if claimed_task_rows else None
+        robot["current_task_id"] = next(
+            (row[0] for row in claimed_task_rows if row[1] in EXECUTING_PROGRESS_STATES),
+            None,
+        )
 
         cursor.execute(
             """
@@ -386,6 +408,7 @@ def get_robot_status(robot_id: str) -> dict[str, Any] | None:
             slot["current"] = slot.pop("current_amps")
             slot["enabled"] = bool(slot.get("enabled", True))
             slot["sensor_ok"] = bool(slot["sensor_ok"])
+        robot["slots"] = [normalize_slot(slot) for slot in robot["slots"]]
         return robot
 
 
@@ -422,7 +445,9 @@ def record_heartbeat(robot_id: str, payload: Heartbeat) -> None:
             yaw=payload.yaw,
             last_seen_at=now,
         )
-        for slot_number, slot in enumerate(payload.slots[:3], start=1):
+        for index, raw_slot in enumerate(payload.slots[:3], start=1):
+            slot = normalize_slot(raw_slot)
+            slot_number = int(slot.get("slot", index))
             bank_id = slot.get("bank_id") or slot.get("id")
             cursor.execute(
                 """
@@ -468,6 +493,16 @@ def record_heartbeat(robot_id: str, payload: Heartbeat) -> None:
 def claim_task(robot_id: str, payload: TaskClaim) -> dict[str, Any] | None:
     with get_connection() as connection, connection.cursor() as cursor:
         for _ in range(3):
+            # Serialize claims for one robot across API workers. A heartbeat creates the row.
+            cursor.execute("SELECT id FROM robots WHERE id = :id FOR UPDATE", id=robot_id)
+            if cursor.fetchone() is None:
+                return None
+            cursor.execute(
+                "SELECT COUNT(*) FROM tasks WHERE robot_id = :robot_id AND status = 'in_progress'",
+                robot_id=robot_id,
+            )
+            if cursor.fetchone()[0] >= MAX_CLAIMED_TASKS:
+                return None
             cursor.execute(
                 """
                 SELECT t.id, t.task_type, t.power_bank_id, t.required_charge, t.quantity
@@ -486,7 +521,8 @@ def claim_task(robot_id: str, payload: TaskClaim) -> dict[str, Any] | None:
                 UPDATE tasks
                 SET status = 'in_progress', robot_id = :robot_id,
                     assigned_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP,
-                    cancel_requested_at = NULL, cancel_reason = NULL
+                    cancel_requested_at = NULL, cancel_reason = NULL,
+                    progress_state = 'queued_on_robot', warning = 0
                 WHERE id = :id AND status = 'pending'
                 """,
                 robot_id=robot_id,
@@ -561,7 +597,7 @@ def release_task(robot_id: str, task_id: str, payload: TaskRelease) -> bool:
                 completed_at = NULL, result_note = :result_note,
                 cancel_requested_at = NULL, cancel_reason = NULL,
                 updated_at = SYSTIMESTAMP,
-                progress_state = NULL, progress_message = NULL,
+                progress_state = NULL, progress_message = NULL, warning = 0,
                 expected_slot = NULL, changed_slot = NULL, changed_slots = NULL,
                 action_deadline = NULL, progress_event_id = NULL,
                 progress_updated_at = NULL
@@ -592,10 +628,23 @@ def record_task_progress(robot_id: str, task_id: str, payload: TaskProgress) -> 
     if str(payload.task_id) != task_id:
         return False
     with get_connection() as connection, connection.cursor() as cursor:
+        if payload.progress_state in EXECUTING_PROGRESS_STATES:
+            cursor.execute("SELECT id FROM robots WHERE id = :id FOR UPDATE", id=robot_id)
+            if cursor.fetchone() is None:
+                return False
+            cursor.execute(
+                "SELECT id, progress_state FROM tasks WHERE robot_id = :robot_id "
+                "AND status = 'in_progress' AND id != :id",
+                robot_id=robot_id,
+                id=task_id,
+            )
+            if any(row[1] in EXECUTING_PROGRESS_STATES for row in cursor.fetchall()):
+                return False
         cursor.execute(
             """
             UPDATE tasks
             SET progress_state = :progress_state,
+                warning = :warning,
                 progress_message = :progress_message,
                 expected_slot = :expected_slot,
                 changed_slot = :changed_slot,
@@ -607,6 +656,7 @@ def record_task_progress(robot_id: str, task_id: str, payload: TaskProgress) -> 
             WHERE id = :id AND robot_id = :robot_id AND status = 'in_progress'
             """,
             progress_state=payload.progress_state,
+            warning=1 if payload.warning else 0,
             progress_message=payload.progress_message,
             expected_slot=payload.expected_slot,
             changed_slot=payload.changed_slot,

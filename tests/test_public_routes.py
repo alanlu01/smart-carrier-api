@@ -302,3 +302,23 @@ def test_robot_can_acknowledge_admin_cancellation(monkeypatch):
 
     assert response.status_code == 200
     assert captured["payload"].status == "cancelled"
+
+
+@pytest.mark.parametrize("quantity", [0, 2, 3])
+def test_orders_reject_unsupported_quantity(quantity):
+    response = client.post("/api/v1/orders", json={"location_code": "A1", "quantity": quantity})
+    assert response.status_code == 422
+
+
+def test_task_response_preserves_warning_and_all_wrong_slots(monkeypatch):
+    expected = task_record(
+        progress_state="wrong_slot",
+        warning=True,
+        expected_slot=1,
+        changed_slot=2,
+        changed_slots=[2, 3],
+    )
+    monkeypatch.setattr(repository, "get_order", lambda _: expected)
+    body = client.get(f"/api/v1/orders/{expected['id']}").json()
+    assert body["warning"] is True
+    assert body["changed_slots"] == [2, 3]

@@ -217,12 +217,12 @@ def test_force_cancel_requests_stop_for_online_robot(monkeypatch):
     monkeypatch.setattr(repository, "get_connection", fake_connection)
 
     assert repository.force_cancel_order("task-1", "admin") == "cancellation_requested"
-    update_sql = cursor.execute.call_args_list[2].args[0]
+    update_sql = cursor.execute.call_args_list[1].args[0]
     assert "cancel_requested_at" in update_sql
     assert "status = 'cancelled'" not in update_sql
 
 
-def test_force_cancel_immediately_cancels_offline_robot_task(monkeypatch):
+def test_force_cancel_offline_robot_still_waits_for_safe_stop(monkeypatch):
     cursor = MagicMock()
     cursor.fetchone.side_effect = [
         ("in_progress", "R1"),
@@ -238,9 +238,10 @@ def test_force_cancel_immediately_cancels_offline_robot_task(monkeypatch):
 
     monkeypatch.setattr(repository, "get_connection", fake_connection)
 
-    assert repository.force_cancel_order("task-1", "admin") == "cancelled"
-    update_sql = cursor.execute.call_args_list[2].args[0]
-    assert "status = 'cancelled'" in update_sql
+    assert repository.force_cancel_order("task-1", "admin") == "cancellation_requested"
+    update_sql = cursor.execute.call_args_list[1].args[0]
+    assert "status = 'cancelled'" not in update_sql
+    assert "cancel_requested_at" in update_sql
 
 
 def test_release_task_only_requeues_task_owned_by_robot(monkeypatch):
@@ -318,3 +319,58 @@ def test_record_task_progress_persists_all_changed_slots(monkeypatch):
     assert "changed_slots = :changed_slots" in sql
     assert binds["changed_slots"] == "2,3"
     assert binds["progress_event_id"] == str(payload.event_id)
+
+
+def test_claim_capacity_counts_existing_tasks_under_robot_lock(monkeypatch):
+    from app.schemas import TaskClaim
+
+    cursor = MagicMock()
+    cursor.fetchone.side_effect = [("R1",), (3,)]
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(repository, "get_connection", fake_connection)
+    payload = TaskClaim(slots=[{"slot": n, "status": "unknown"} for n in range(1, 4)])
+    assert repository.claim_task("R1", payload) is None
+    assert "FOR UPDATE" in cursor.execute.call_args_list[0].args[0]
+    assert len(cursor.execute.call_args_list) == 2
+    connection.commit.assert_not_called()
+
+
+def test_progress_rejects_second_executing_task(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.return_value = ("R1",)
+    cursor.fetchall.return_value = [("other-task", "navigating")]
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(repository, "get_connection", fake_connection)
+    payload = TaskProgress(
+        event_id="85af9ce7-6b7d-4a3d-8afb-155334a0aa4f",
+        task_id="95af9ce7-6b7d-4a3d-8afb-155334a0aa4f",
+        progress_state="navigating",
+    )
+    assert repository.record_task_progress("R1", str(payload.task_id), payload) is False
+    assert all("UPDATE tasks" not in call.args[0] for call in cursor.execute.call_args_list)
+
+
+def test_slot_charge_obeys_sensor_status():
+    for status, expected in [
+        ("empty", 0),
+        ("full", 100),
+        ("low", None),
+        ("unknown", None),
+        ("disabled", None),
+    ]:
+        slot = repository.normalize_slot({"status": status, "sensor_ok": True, "charge": 42})
+        assert slot["charge"] == expected
+    assert repository.normalize_slot({"status": "full", "sensor_ok": False})["charge"] is None
+    assert repository.normalize_slot({"status": "full", "enabled": False})["status"] == "disabled"
