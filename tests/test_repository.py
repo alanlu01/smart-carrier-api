@@ -3,7 +3,29 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from app import repository
-from app.schemas import Heartbeat, TaskProgress, TaskRelease
+from app.schemas import Heartbeat, TaskCreate, TaskProgress, TaskRelease
+
+
+def test_public_locations_and_new_orders_only_use_enabled_locations(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    cursor.fetchone.return_value = None
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(repository, "get_connection", fake_connection)
+
+    assert repository.list_locations() == []
+    list_sql = cursor.execute.call_args.args[0]
+    assert "WHERE enabled = 1" in list_sql
+
+    assert repository.create_order(TaskCreate(location_code="S1")) is None
+    create_sql = cursor.execute.call_args.args[0]
+    assert "WHERE code = :code AND enabled = 1" in create_sql
 
 
 def test_heartbeat_avoids_reserved_mode_bind_name(monkeypatch):

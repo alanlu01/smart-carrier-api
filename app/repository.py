@@ -98,14 +98,16 @@ def _fetch_all(cursor) -> list[dict[str, Any]]:
 
 def list_locations() -> list[dict[str, Any]]:
     with get_connection() as connection, connection.cursor() as cursor:
-        cursor.execute(f"SELECT {LOCATION_COLUMNS} FROM locations ORDER BY code")
+        cursor.execute(
+            f"SELECT {LOCATION_COLUMNS} FROM locations WHERE enabled = 1 ORDER BY code"
+        )
         return _fetch_all(cursor)
 
 
 def get_location(location_code: str) -> dict[str, Any] | None:
     with get_connection() as connection, connection.cursor() as cursor:
         cursor.execute(
-            f"SELECT {LOCATION_COLUMNS} FROM locations WHERE code = :code",
+            f"SELECT {LOCATION_COLUMNS} FROM locations WHERE code = :code AND enabled = 1",
             code=location_code.upper(),
         )
         return _fetch_one(cursor)
@@ -157,7 +159,10 @@ def create_order(payload: TaskCreate) -> dict[str, Any] | None:
     task_id = str(uuid4())
     location_code = payload.location_code.upper()
     with get_connection() as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT 1 FROM locations WHERE code = :code", code=location_code)
+        cursor.execute(
+            "SELECT 1 FROM locations WHERE code = :code AND enabled = 1",
+            code=location_code,
+        )
         if cursor.fetchone() is None:
             return None
         cursor.execute(
@@ -465,10 +470,11 @@ def claim_task(robot_id: str, payload: TaskClaim) -> dict[str, Any] | None:
         for _ in range(3):
             cursor.execute(
                 """
-                SELECT id, task_type, power_bank_id, required_charge, quantity
-                FROM tasks
-                WHERE status = 'pending'
-                ORDER BY created_at
+                SELECT t.id, t.task_type, t.power_bank_id, t.required_charge, t.quantity
+                FROM tasks t
+                JOIN locations l ON l.code = t.location_code
+                WHERE t.status = 'pending' AND l.enabled = 1
+                ORDER BY t.created_at
                 """
             )
             candidates = cursor.fetchall()

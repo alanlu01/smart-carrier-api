@@ -11,11 +11,19 @@ BEGIN
       x NUMBER,
       y NUMBER,
       yaw NUMBER,
+      enabled NUMBER(1) DEFAULT 1 NOT NULL CHECK (enabled IN (0, 1)),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL
     )
   ]';
 EXCEPTION
   WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+
+BEGIN
+  EXECUTE IMMEDIATE 'ALTER TABLE locations ADD (enabled NUMBER(1) DEFAULT 1 NOT NULL CHECK (enabled IN (0, 1)))';
+EXCEPTION
+  WHEN OTHERS THEN IF SQLCODE != -1430 THEN RAISE; END IF;
 END;
 /
 
@@ -187,36 +195,39 @@ END;
 
 MERGE INTO locations target
 USING (
-  SELECT 'A1' code, '門口' name, '1F' floor, -0.45 x, -0.35 y, 0 yaw FROM dual
+  SELECT 'A1' code, '右樓梯口' name, '3F' floor, 7.7 x, -7.2 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
-WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw)
-VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw);
+WHEN MATCHED THEN UPDATE SET
+  target.name = source.name, target.floor = source.floor,
+  target.x = source.x, target.y = source.y, target.yaw = source.yaw, target.enabled = 1
+WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
+VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
 /
 
 MERGE INTO locations target
 USING (
-  SELECT 'F1' code, '廁所' name, '1F' floor, -4 x, 1.5 y, 3.14 yaw FROM dual
+  SELECT 'E1' code, '左樓梯口' name, '3F' floor, 7 x, 5.5 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
-WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw)
-VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw);
+WHEN MATCHED THEN UPDATE SET
+  target.name = source.name, target.floor = source.floor,
+  target.x = source.x, target.y = source.y, target.yaw = source.yaw, target.enabled = 1
+WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
+VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
 /
 
 MERGE INTO locations target
 USING (
-  SELECT 'E1' code, '廚房' name, '1F' floor, -1.5 x, 5 y, 0 yaw FROM dual
+  SELECT 'F1' code, '電機工程學系' name, '3F' floor, -2.6 x, 4.7 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
-WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw)
-VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw);
+WHEN MATCHED THEN UPDATE SET
+  target.name = source.name, target.floor = source.floor,
+  target.x = source.x, target.y = source.y, target.yaw = source.yaw, target.enabled = 1
+WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
+VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
 /
 
-MERGE INTO locations target
-USING (
-  SELECT 'S1' code, '客廳TV' name, '1F' floor, 0.4 x, 0 y, 0 yaw FROM dual
-) source
-ON (target.code = source.code)
-WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw)
-VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw);
+UPDATE locations SET enabled = 0 WHERE code = 'S1';
 /
