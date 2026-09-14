@@ -7,6 +7,7 @@ from app.schemas import (
     AdminLoginResponse,
     ForceCancelRequest,
     ForceCancelResponse,
+    ForceFinalizeRequest,
     Task,
 )
 from app.security import (
@@ -87,3 +88,17 @@ def force_cancel_order(task_id: str, payload: ForceCancelRequest):
             detail="Only pending or in-progress tasks can be cancelled",
         )
     return ForceCancelResponse(outcome=outcome)
+
+
+@router.post(
+    "/orders/{task_id}/force-finalize",
+    response_model=ForceCancelResponse,
+    dependencies=[Depends(require_admin_session)],
+)
+def force_finalize_order(task_id: str, payload: ForceFinalizeRequest):
+    if not repository.force_finalize_order(task_id, payload.reason):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only pending or in-progress tasks can be force-finalized",
+        )
+    return ForceCancelResponse(outcome="cancelled")

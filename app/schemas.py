@@ -91,6 +91,7 @@ class Task(BaseModel):
     action_deadline: datetime | None = None
     progress_event_id: UUID | None = None
     progress_updated_at: datetime | None = None
+    claim_request_id: UUID | None = None
 
     @field_validator(
         "created_at",
@@ -131,6 +132,7 @@ class TaskClaimSlot(BaseModel):
 
 class TaskClaim(BaseModel):
     slots: list[TaskClaimSlot] = Field(min_length=3, max_length=3)
+    claim_request_id: UUID | None = None
 
     @field_validator("slots")
     @classmethod
@@ -158,6 +160,11 @@ class ForceCancelRequest(BaseModel):
 class ForceCancelResponse(BaseModel):
     ok: bool = True
     outcome: Literal["cancelled", "cancellation_requested"]
+
+
+class ForceFinalizeRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+    operator_confirmed_stopped: Literal[True]
 
 
 class AdminLoginRequest(BaseModel):

@@ -21,7 +21,7 @@ TASK_COLUMNS = """
     assigned_at, completed_at, cancel_requested_at, cancel_reason,
     progress_state, progress_message, warning,
     expected_slot, changed_slot, changed_slots, action_deadline,
-    progress_event_id, progress_updated_at
+    progress_event_id, progress_updated_at, claim_request_id
 """
 
 
@@ -261,6 +261,28 @@ def get_robot_order(robot_id: str, task_id: str) -> dict[str, Any] | None:
         return _fetch_one(cursor)
 
 
+def list_robot_active_tasks(robot_id: str) -> list[dict[str, Any]]:
+    """Return every task the backend currently assigns to this robot."""
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {TASK_COLUMNS}
+            FROM tasks
+            WHERE robot_id = :robot_id AND status = 'in_progress'
+            ORDER BY assigned_at, created_at
+            """,
+            robot_id=robot_id,
+        )
+        tasks = _fetch_all(cursor)
+        for task in tasks:
+            cursor.execute(
+                f"SELECT {LOCATION_COLUMNS} FROM locations WHERE code = :code",
+                code=task["location_code"],
+            )
+            task["location"] = _fetch_one(cursor)
+        return tasks
+
+
 def cancel_order(task_id: str) -> bool:
     with get_connection() as connection, connection.cursor() as cursor:
         cursor.execute(
@@ -323,6 +345,30 @@ def force_cancel_order(task_id: str, reason: str | None = None) -> str | None:
         )
         connection.commit()
         return "cancellation_requested" if cursor.rowcount == 1 else None
+
+
+def force_finalize_order(task_id: str, reason: str) -> bool:
+    """Terminally cancel only after an operator confirms physical motion stopped."""
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE tasks
+            SET status = 'cancelled', result_note = :reason,
+                cancel_requested_at = COALESCE(cancel_requested_at, SYSTIMESTAMP),
+                cancel_reason = :reason, completed_at = SYSTIMESTAMP,
+                updated_at = SYSTIMESTAMP, progress_state = 'cancelled',
+                progress_message = :reason, warning = 0,
+                expected_slot = NULL, changed_slot = NULL, changed_slots = NULL,
+                action_deadline = NULL, progress_event_id = NULL,
+                progress_updated_at = SYSTIMESTAMP
+            WHERE id = :id AND status IN ('pending', 'in_progress')
+            """,
+            id=task_id,
+            reason=reason,
+        )
+        changed = cursor.rowcount == 1
+        connection.commit()
+        return changed
 
 
 def robot_is_online(last_seen_at: datetime, now: datetime | None = None) -> bool:
@@ -497,6 +543,24 @@ def claim_task(robot_id: str, payload: TaskClaim) -> dict[str, Any] | None:
             cursor.execute("SELECT id FROM robots WHERE id = :id FOR UPDATE", id=robot_id)
             if cursor.fetchone() is None:
                 return None
+            if payload.claim_request_id is not None:
+                cursor.execute(
+                    f"""
+                    SELECT {TASK_COLUMNS}
+                    FROM tasks
+                    WHERE robot_id = :robot_id AND claim_request_id = :claim_request_id
+                    """,
+                    robot_id=robot_id,
+                    claim_request_id=str(payload.claim_request_id),
+                )
+                existing = _fetch_one(cursor)
+                if existing is not None:
+                    cursor.execute(
+                        f"SELECT {LOCATION_COLUMNS} FROM locations WHERE code = :code",
+                        code=existing["location_code"],
+                    )
+                    existing["location"] = _fetch_one(cursor)
+                    return existing
             cursor.execute(
                 "SELECT COUNT(*) FROM tasks WHERE robot_id = :robot_id AND status = 'in_progress'",
                 robot_id=robot_id,
@@ -522,10 +586,16 @@ def claim_task(robot_id: str, payload: TaskClaim) -> dict[str, Any] | None:
                 SET status = 'in_progress', robot_id = :robot_id,
                     assigned_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP,
                     cancel_requested_at = NULL, cancel_reason = NULL,
-                    progress_state = 'queued_on_robot', warning = 0
+                    progress_state = 'queued_on_robot', warning = 0,
+                    claim_request_id = :claim_request_id
                 WHERE id = :id AND status = 'pending'
                 """,
                 robot_id=robot_id,
+                claim_request_id=(
+                    str(payload.claim_request_id)
+                    if payload.claim_request_id is not None
+                    else None
+                ),
                 id=task_id,
             )
             if cursor.rowcount == 1:
@@ -551,11 +621,16 @@ def complete_task(robot_id: str, task_id: str, payload: TaskResult) -> bool:
             """
             UPDATE tasks
             SET status = :status, result_note = :result_note,
-                completed_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP
+                completed_at = SYSTIMESTAMP, updated_at = SYSTIMESTAMP,
+                progress_state = 'result_acked', progress_message = :result_note,
+                warning = 0, expected_slot = NULL, changed_slot = NULL,
+                changed_slots = NULL, action_deadline = NULL,
+                progress_event_id = :event_id, progress_updated_at = SYSTIMESTAMP
             WHERE id = :id AND robot_id = :robot_id AND status = 'in_progress'
             """,
             status=payload.status,
             result_note=payload.note,
+            event_id=str(payload.event_id),
             id=task_id,
             robot_id=robot_id,
         )
@@ -600,7 +675,7 @@ def release_task(robot_id: str, task_id: str, payload: TaskRelease) -> bool:
                 progress_state = NULL, progress_message = NULL, warning = 0,
                 expected_slot = NULL, changed_slot = NULL, changed_slots = NULL,
                 action_deadline = NULL, progress_event_id = NULL,
-                progress_updated_at = NULL
+                progress_updated_at = NULL, claim_request_id = NULL
             WHERE id = :id AND robot_id = :robot_id AND status = 'in_progress'
               AND cancel_requested_at IS NULL
             """,

@@ -123,6 +123,28 @@ def test_admin_force_cancel_requests_robot_stop(monkeypatch):
     assert response.json() == {"ok": True, "outcome": "cancellation_requested"}
 
 
+def test_admin_force_finalize_requires_explicit_stopped_confirmation(monkeypatch):
+    monkeypatch.setitem(app.dependency_overrides, require_admin_session, lambda: None)
+    response = client.post(
+        f"/api/v1/admin/orders/{uuid4()}/force-finalize",
+        json={"reason": "operator verified stop", "operator_confirmed_stopped": False},
+    )
+
+    assert response.status_code == 422
+
+
+def test_admin_force_finalize_terminally_cancels(monkeypatch):
+    monkeypatch.setitem(app.dependency_overrides, require_admin_session, lambda: None)
+    monkeypatch.setattr(repository, "force_finalize_order", lambda *_args: True)
+    response = client.post(
+        f"/api/v1/admin/orders/{uuid4()}/force-finalize",
+        json={"reason": "operator verified stop", "operator_confirmed_stopped": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "outcome": "cancelled"}
+
+
 def test_public_robot_status_returns_live_slots_without_robot_token(monkeypatch):
     now = datetime(2026, 8, 22, 9, 6, 15)
     monkeypatch.setattr(
@@ -221,6 +243,7 @@ def test_robot_claim_passes_validated_three_slot_snapshot(monkeypatch):
     response = client.post(
         "/api/v1/robots/R1/tasks/claim",
         json={
+            "claim_request_id": "85af9ce7-6b7d-4a3d-8afb-155334a0aa4f",
             "slots": [
                 {"slot": 1, "status": "ready", "charge": 96},
                 {"slot": 2, "status": "low", "charge": 45},
@@ -231,6 +254,9 @@ def test_robot_claim_passes_validated_three_slot_snapshot(monkeypatch):
 
     assert response.status_code == 204
     assert captured["robot_id"] == "R1"
+    assert str(captured["payload"].claim_request_id) == (
+        "85af9ce7-6b7d-4a3d-8afb-155334a0aa4f"
+    )
     assert [slot.slot for slot in captured["payload"].slots] == [1, 2, 3]
 
 
@@ -280,6 +306,17 @@ def test_robot_can_read_cancel_request_for_its_assigned_task(monkeypatch):
     assert response.status_code == 200
     assert response.json()["cancel_reason"] == "admin stop"
     assert response.json()["cancel_requested_at"].endswith("Z")
+
+
+def test_robot_can_reconcile_all_active_assigned_tasks(monkeypatch):
+    expected = [task_record(status="in_progress", robot_id="R1", location=None)]
+    monkeypatch.setitem(app.dependency_overrides, require_robot_token, lambda: None)
+    monkeypatch.setattr(repository, "list_robot_active_tasks", lambda _robot_id: expected)
+
+    response = client.get("/api/v1/robots/R1/tasks")
+
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == str(expected[0]["id"])
 
 
 def test_robot_can_acknowledge_admin_cancellation(monkeypatch):

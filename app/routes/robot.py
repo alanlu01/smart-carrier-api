@@ -35,6 +35,11 @@ def claim_task(robot_id: str, payload: TaskClaim, response: Response):
     return task
 
 
+@router.get("/{robot_id}/tasks", response_model=list[ClaimedTask])
+def list_assigned_tasks(robot_id: str):
+    return repository.list_robot_active_tasks(robot_id)
+
+
 @router.get("/{robot_id}/tasks/{task_id}", response_model=Task)
 def get_assigned_task(robot_id: str, task_id: str):
     task = repository.get_robot_order(robot_id, task_id)

@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from app import repository
-from app.schemas import Heartbeat, TaskCreate, TaskProgress, TaskRelease
+from app.schemas import Heartbeat, TaskCreate, TaskProgress, TaskRelease, TaskResult
 
 
 def test_public_locations_and_new_orders_only_use_enabled_locations(monkeypatch):
@@ -244,6 +244,50 @@ def test_force_cancel_offline_robot_still_waits_for_safe_stop(monkeypatch):
     assert "cancel_requested_at" in update_sql
 
 
+def test_force_finalize_clears_action_state(monkeypatch):
+    cursor = MagicMock()
+    cursor.rowcount = 1
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(repository, "get_connection", fake_connection)
+
+    assert repository.force_finalize_order("task-1", "operator stopped") is True
+    sql = cursor.execute.call_args.args[0]
+    assert "status = 'cancelled'" in sql
+    assert "progress_state = 'cancelled'" in sql
+    assert "warning = 0" in sql
+
+
+def test_complete_task_clears_stale_action_fields(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.return_value = None
+    cursor.rowcount = 1
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(repository, "get_connection", fake_connection)
+    payload = TaskResult(
+        event_id="85af9ce7-6b7d-4a3d-8afb-155334a0aa4f",
+        status="done",
+        note="confirmed",
+    )
+
+    assert repository.complete_task("R1", "task-1", payload) is True
+    sql = cursor.execute.call_args_list[1].args[0]
+    assert "progress_state = 'result_acked'" in sql
+    assert "changed_slots = NULL" in sql
+    assert "warning = 0" in sql
+
+
 def test_release_task_only_requeues_task_owned_by_robot(monkeypatch):
     cursor = MagicMock()
     cursor.rowcount = 1
@@ -339,6 +383,37 @@ def test_claim_capacity_counts_existing_tasks_under_robot_lock(monkeypatch):
     assert "FOR UPDATE" in cursor.execute.call_args_list[0].args[0]
     assert len(cursor.execute.call_args_list) == 2
     connection.commit.assert_not_called()
+
+
+def test_claim_request_id_returns_the_previously_assigned_task(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.return_value = ("R1",)
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    existing = {
+        "id": "task-1",
+        "location_code": "A1",
+        "claim_request_id": "85af9ce7-6b7d-4a3d-8afb-155334a0aa4f",
+    }
+    location = {"code": "A1", "name": "右樓梯口"}
+    fetched = iter([existing, location])
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(repository, "get_connection", fake_connection)
+    monkeypatch.setattr(repository, "_fetch_one", lambda _cursor: next(fetched))
+    payload = repository.TaskClaim(
+        claim_request_id="85af9ce7-6b7d-4a3d-8afb-155334a0aa4f",
+        slots=[{"slot": n, "status": "unknown"} for n in range(1, 4)],
+    )
+
+    task = repository.claim_task("R1", payload)
+
+    assert task["id"] == "task-1"
+    assert task["location"] == location
+    assert all("COUNT(*)" not in call.args[0] for call in cursor.execute.call_args_list)
 
 
 def test_progress_rejects_second_executing_task(monkeypatch):

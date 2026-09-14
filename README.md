@@ -207,12 +207,22 @@ including orders awaiting cancellation or result synchronization. New claims exp
 `current_task_id` is set only when a task has started its execution stages. A second
 order cannot enter an execution stage until the first reaches a terminal state.
 The bridge supplies projected inventory after its existing slot reservations.
+Each bridge claim includes a durable `claim_request_id`; retrying the same request
+returns the original assignment instead of claiming another order. On startup and
+after reconnecting, the bridge reads `GET /api/v1/robots/{robot_id}/tasks` to recover
+an assignment whose original HTTP response was lost.
 
 `arrived`, `waiting_action`, `verifying_action`, and `result_pending` are not terminal.
 Only the robot result endpoint changes an executing order to `done`, `failed`, or
 `cancelled`. Progress persists `warning`, `expected_slot`, `changed_slot`,
 `changed_slots`, and the UTC `action_deadline`. Active cancellations always wait for
 a robot acknowledgement, including while the heartbeat is offline.
+
+The regular admin force-cancel endpoint remains a safe stop request for active tasks.
+Only after an operator physically confirms that the robot stopped may the admin client
+call `POST /api/v1/admin/orders/{task_id}/force-finalize` with
+`{"reason":"...","operator_confirmed_stopped":true}`. This explicit recovery path
+terminally cancels an orphaned task and clears stale physical-action fields.
 
 Slot availability uses both `enabled` and `sensor_ok`. `empty` has charge 0,
 `full` has charge 100, and `low`, `unknown`, or `disabled` have null charge.

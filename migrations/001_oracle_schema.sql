@@ -55,6 +55,7 @@ BEGIN
       action_deadline TIMESTAMP WITH TIME ZONE,
       progress_event_id VARCHAR2(36),
       progress_updated_at TIMESTAMP WITH TIME ZONE,
+      claim_request_id VARCHAR2(36),
       CONSTRAINT ck_tasks_type CHECK (
         task_type IN ('borrow', 'return', 'delivery', 'navigation', 'callbot')
       ),
@@ -156,6 +157,8 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1430 THEN RAISE; END IF; END;
   BEGIN EXECUTE IMMEDIATE 'ALTER TABLE tasks ADD progress_updated_at TIMESTAMP WITH TIME ZONE';
   EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1430 THEN RAISE; END IF; END;
+  BEGIN EXECUTE IMMEDIATE 'ALTER TABLE tasks ADD claim_request_id VARCHAR2(36)';
+  EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1430 THEN RAISE; END IF; END;
   BEGIN EXECUTE IMMEDIATE 'ALTER TABLE power_slots ADD enabled NUMBER(1) DEFAULT 1 NOT NULL';
   EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1430 THEN RAISE; END IF; END;
   BEGIN EXECUTE IMMEDIATE 'ALTER TABLE power_slots ADD sensor_ok NUMBER(1) DEFAULT 1 NOT NULL CHECK (sensor_ok IN (0, 1))';
@@ -195,6 +198,13 @@ END;
 
 BEGIN
   EXECUTE IMMEDIATE 'CREATE INDEX idx_events_robot_created ON robot_events(robot_id, created_at)';
+EXCEPTION
+  WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+
+BEGIN
+  EXECUTE IMMEDIATE 'CREATE UNIQUE INDEX idx_tasks_claim_request ON tasks(claim_request_id)';
 EXCEPTION
   WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF;
 END;
