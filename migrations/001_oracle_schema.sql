@@ -224,7 +224,7 @@ VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 
 
 MERGE INTO locations target
 USING (
-  SELECT 'E1' code, '左樓梯口' name, '3F' floor, 7 x, 5.5 y, 0 yaw FROM dual
+  SELECT 'E1' code, '左樓梯口' name, '3F' floor, 7.5 x, 5.6 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
 WHEN MATCHED THEN UPDATE SET

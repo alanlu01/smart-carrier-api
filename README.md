@@ -140,7 +140,7 @@ The robot map is the source of truth. The current cloud mapping is:
 | Code | Name | x | y | yaw |
 | --- | --- | ---: | ---: | ---: |
 | A1 | 右樓梯口 | 7.7 | -7.2 | 0.0 |
-| E1 | 左樓梯口 | 7.0 | 5.5 | 0.0 |
+| E1 | 左樓梯口 | 7.5 | 5.6 | 0.0 |
 | F1 | 電機工程學系 | -2.6 | 4.7 | 0.0 |
 
 ### Start by public IP
