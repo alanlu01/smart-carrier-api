@@ -112,8 +112,9 @@ docker compose -f compose.oracle.yml run --rm api python -m app.migrations
 ```
 
 The idempotent migration creates locations, tasks, robots, power slots, robot events, indexes,
-and A1/E1/F1/C1/L1/B1 seed locations. Existing S1 records are retained for task history but disabled for
-new orders and task claims.
+and A1/E1/F1 seed locations. Existing S1 records are retained for task history but disabled for
+new orders and task claims. Misplaced C1/L1/B1 locations are disabled and removed when no tasks
+or robots reference them; referenced records are retained for history.
 
 ### Apply measured map locations
 
@@ -145,11 +146,8 @@ The robot map is the source of truth. The current cloud mapping is:
 | A1 | 右樓梯口 | 7.8 | -6.6 | 0.0 |
 | E1 | 左樓梯口 | 7.2 | 5.7 | 0.0 |
 | F1 | 電機工程學系 | -3.0 | 5.0 | 0.0 |
-| C1 | CYCU EE | 2.0 | 5.18 | 0.0 |
-| L1 | 座位燈 | 1.4 | -5.3 | 0.0 |
-| B1 | 座位 | 6.6 | -0.3 | 0.0 |
 
-All six service points use floor `3F`. No new headings were supplied with these coordinates,
+All three service points use floor `3F`. No new headings were supplied with these coordinates,
 so yaw remains `0.0` radians.
 
 ### Start by public IP

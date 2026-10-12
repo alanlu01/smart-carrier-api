@@ -246,41 +246,12 @@ WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
 VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
 /
 
-MERGE INTO locations target
-USING (
-  SELECT 'C1' code, 'CYCU EE' name, '3F' floor, 2.0 x, 5.18 y, 0 yaw FROM dual
-) source
-ON (target.code = source.code)
-WHEN MATCHED THEN UPDATE SET
-  target.name = source.name, target.floor = source.floor,
-  target.x = source.x, target.y = source.y, target.yaw = source.yaw, target.enabled = 1
-WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
-VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
+-- Retire misplaced service points, preserving any referenced task history.
+UPDATE locations SET enabled = 0 WHERE code IN ('S1', 'C1', 'L1', 'B1');
 /
 
-MERGE INTO locations target
-USING (
-  SELECT 'L1' code, '座位燈' name, '3F' floor, 1.4 x, -5.3 y, 0 yaw FROM dual
-) source
-ON (target.code = source.code)
-WHEN MATCHED THEN UPDATE SET
-  target.name = source.name, target.floor = source.floor,
-  target.x = source.x, target.y = source.y, target.yaw = source.yaw, target.enabled = 1
-WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
-VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
-/
-
-MERGE INTO locations target
-USING (
-  SELECT 'B1' code, '座位' name, '3F' floor, 6.6 x, -0.3 y, 0 yaw FROM dual
-) source
-ON (target.code = source.code)
-WHEN MATCHED THEN UPDATE SET
-  target.name = source.name, target.floor = source.floor,
-  target.x = source.x, target.y = source.y, target.yaw = source.yaw, target.enabled = 1
-WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
-VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
-/
-
-UPDATE locations SET enabled = 0 WHERE code = 'S1';
+DELETE FROM locations
+WHERE code IN ('C1', 'L1', 'B1')
+  AND NOT EXISTS (SELECT 1 FROM tasks WHERE tasks.location_code = locations.code)
+  AND NOT EXISTS (SELECT 1 FROM robots WHERE robots.location_code = locations.code);
 /
