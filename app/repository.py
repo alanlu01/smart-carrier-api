@@ -3,9 +3,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+import oracledb
+
 from app.database import get_connection
 from app.schemas import (
     Heartbeat,
+    LocationCreate,
+    LocationInput,
     TaskClaim,
     TaskClaimSlot,
     TaskCreate,
@@ -27,6 +31,108 @@ TASK_COLUMNS = """
 
 class LocationHasActiveTasks(RuntimeError):
     pass
+
+
+class LocationConflict(RuntimeError):
+    pass
+
+
+def _lock_location_changes(cursor) -> None:
+    # Lock locations before tasks, matching create_order's location-then-task order.
+    try:
+        cursor.execute("LOCK TABLE locations IN EXCLUSIVE MODE WAIT 5")
+        cursor.execute("LOCK TABLE tasks IN SHARE ROW EXCLUSIVE MODE WAIT 5")
+    except oracledb.DatabaseError as exc:
+        if exc.args[0].code in {54, 30006}:
+            raise LocationConflict("地點資料正在使用中，請稍後再試。") from exc
+        raise
+
+
+def _require_no_location_tasks(cursor, code: str) -> None:
+    cursor.execute(
+        """SELECT COUNT(*) FROM tasks
+        WHERE location_code = :code AND status IN ('pending', 'in_progress')""",
+        code=code,
+    )
+    if cursor.fetchone()[0]:
+        raise LocationHasActiveTasks("此地點有待處理或執行中的訂單，暫時無法修改或刪除。")
+
+
+def create_location(payload: LocationCreate) -> dict[str, Any]:
+    with get_connection() as connection, connection.cursor() as cursor:
+        try:
+            _lock_location_changes(cursor)
+            cursor.execute("SELECT 1 FROM locations WHERE code = :code", code=payload.code)
+            if cursor.fetchone() is not None:
+                raise LocationConflict("地點代碼已使用，請選擇其他代碼。")
+            cursor.execute(
+                """INSERT INTO locations (code, name, description, floor, x, y, yaw, enabled)
+                VALUES (:code, :location_name, :description, :floor, :x, :y, :yaw, 1)""",
+                code=payload.code,
+                location_name=payload.name,
+                description=payload.description,
+                floor=payload.floor,
+                x=payload.x,
+                y=payload.y,
+                yaw=payload.yaw,
+            )
+            cursor.execute(
+                f"SELECT {LOCATION_COLUMNS} FROM locations WHERE code = :code", code=payload.code
+            )
+            result = _fetch_one(cursor)
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+
+
+def edit_location(code: str, payload: LocationInput) -> dict[str, Any] | None:
+    with get_connection() as connection, connection.cursor() as cursor:
+        try:
+            _lock_location_changes(cursor)
+            _require_no_location_tasks(cursor, code)
+            cursor.execute(
+                """UPDATE locations SET name = :location_name, description = :description,
+                floor = :floor, x = :x, y = :y, yaw = :yaw
+                WHERE code = :code AND enabled = 1""",
+                code=code,
+                location_name=payload.name,
+                description=payload.description,
+                floor=payload.floor,
+                x=payload.x,
+                y=payload.y,
+                yaw=payload.yaw,
+            )
+            if cursor.rowcount != 1:
+                connection.rollback()
+                return None
+            cursor.execute(
+                f"SELECT {LOCATION_COLUMNS} FROM locations WHERE code = :code", code=code
+            )
+            result = _fetch_one(cursor)
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+
+
+def delete_location(code: str) -> bool:
+    with get_connection() as connection, connection.cursor() as cursor:
+        try:
+            _lock_location_changes(cursor)
+            _require_no_location_tasks(cursor, code)
+            # Preserve the code and its references for historical orders and seed migrations.
+            cursor.execute(
+                "UPDATE locations SET enabled = 0 WHERE code = :code AND enabled = 1", code=code
+            )
+            deleted = cursor.rowcount == 1
+            connection.commit()
+            return deleted
+        except Exception:
+            connection.rollback()
+            raise
 
 
 NAVIGATION_ONLY_TASK_TYPES = {"delivery", "navigation", "callbot"}
@@ -199,7 +305,7 @@ def create_order(payload: TaskCreate) -> dict[str, Any] | None:
     location_code = payload.location_code.upper()
     with get_connection() as connection, connection.cursor() as cursor:
         cursor.execute(
-            "SELECT 1 FROM locations WHERE code = :code AND enabled = 1",
+            "SELECT 1 FROM locations WHERE code = :code AND enabled = 1 FOR UPDATE",
             code=location_code,
         )
         if cursor.fetchone() is None:
@@ -592,9 +698,7 @@ def claim_task(robot_id: str, payload: TaskClaim) -> dict[str, Any] | None:
                 """,
                 robot_id=robot_id,
                 claim_request_id=(
-                    str(payload.claim_request_id)
-                    if payload.claim_request_id is not None
-                    else None
+                    str(payload.claim_request_id) if payload.claim_request_id is not None else None
                 ),
                 id=task_id,
             )

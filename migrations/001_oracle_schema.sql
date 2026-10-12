@@ -215,9 +215,6 @@ USING (
   SELECT 'A1' code, '右樓梯口' name, '3F' floor, 7.8 x, -6.6 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
-WHEN MATCHED THEN UPDATE SET
-  target.name = source.name, target.floor = source.floor,
-  target.x = source.x, target.y = source.y, target.yaw = source.yaw, target.enabled = 1
 WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
 VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
 /
@@ -227,9 +224,6 @@ USING (
   SELECT 'E1' code, '左樓梯口' name, '3F' floor, 7.2 x, 5.7 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
-WHEN MATCHED THEN UPDATE SET
-  target.name = source.name, target.floor = source.floor,
-  target.x = source.x, target.y = source.y, target.yaw = source.yaw, target.enabled = 1
 WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
 VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
 /
@@ -239,19 +233,10 @@ USING (
   SELECT 'F1' code, '電機工程學系' name, '3F' floor, -3 x, 5 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
-WHEN MATCHED THEN UPDATE SET
-  target.name = source.name, target.floor = source.floor,
-  target.x = source.x, target.y = source.y, target.yaw = source.yaw, target.enabled = 1
 WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
 VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
 /
 
--- Retire misplaced service points, preserving any referenced task history.
-UPDATE locations SET enabled = 0 WHERE code IN ('S1', 'C1', 'L1', 'B1');
-/
-
-DELETE FROM locations
-WHERE code IN ('C1', 'L1', 'B1')
-  AND NOT EXISTS (SELECT 1 FROM tasks WHERE tasks.location_code = locations.code)
-  AND NOT EXISTS (SELECT 1 FROM robots WHERE robots.location_code = locations.code);
+-- Retain the retired original demo location for task history.
+UPDATE locations SET enabled = 0 WHERE code = 'S1';
 /

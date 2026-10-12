@@ -113,8 +113,24 @@ docker compose -f compose.oracle.yml run --rm api python -m app.migrations
 
 The idempotent migration creates locations, tasks, robots, power slots, robot events, indexes,
 and A1/E1/F1 seed locations. Existing S1 records are retained for task history but disabled for
-new orders and task claims. Misplaced C1/L1/B1 locations are disabled and removed when no tasks
-or robots reference them; referenced records are retained for history.
+new orders and task claims. Seeds only insert missing codes; they preserve administrator
+changes and do not reactivate deleted locations.
+
+### Administrator location management
+
+After administrator login, the web console supports creating, editing and deleting service
+locations, including code, name, description, floor, map-frame X/Y and yaw in radians.
+Location codes use 1–32 ASCII letters/numbers and cannot be changed after creation.
+
+- `POST /api/v1/admin/locations`: create a location; duplicate or archived codes return 409.
+- `PATCH /api/v1/admin/locations/{code}`: replace its editable details and coordinates.
+- `DELETE /api/v1/admin/locations/{code}`: remove it from ordering and QR lists while retaining
+  its row for historical orders. Archived codes cannot be reused.
+
+All writes require the existing signed administrator session. Coordinates must be finite;
+blank names/floors are rejected. Editing/deleting a location with pending or in-progress
+orders returns 409. Database locks serialize location changes with new orders and claims.
+An expired session returns 401 and the console asks the administrator to log in again.
 
 ### Apply measured map locations
 
@@ -136,8 +152,7 @@ docker compose -f compose.oracle.yml run --rm api \
 The command refuses to change a location that has pending or in-progress tasks. Repeat for
 each existing location, then verify `/api/v1/locations` before enabling real task claims.
 New locations are created by the seed migration above; the calibration command only updates
-locations that already exist. Run the migration when no pending or in-progress tasks use the
-affected locations, since its seed statements replace their coordinates.
+locations that already exist. Subsequent migrations preserve these measured coordinates.
 
 The robot map is the source of truth. The current cloud mapping is:
 

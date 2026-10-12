@@ -8,6 +8,10 @@ from app.schemas import (
     ForceCancelRequest,
     ForceCancelResponse,
     ForceFinalizeRequest,
+    Location,
+    LocationCreate,
+    LocationInput,
+    MessageResponse,
     Task,
 )
 from app.security import (
@@ -21,6 +25,47 @@ from app.security import (
 )
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+
+@router.post(
+    "/locations",
+    response_model=Location,
+    status_code=201,
+    dependencies=[Depends(require_admin_session)],
+)
+def create_location(payload: LocationCreate):
+    try:
+        return repository.create_location(payload)
+    except repository.LocationConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/locations/{code}", response_model=Location, dependencies=[Depends(require_admin_session)]
+)
+def edit_location(code: str, payload: LocationInput):
+    try:
+        location = repository.edit_location(code.upper(), payload)
+    except (repository.LocationConflict, repository.LocationHasActiveTasks) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if location is None:
+        raise HTTPException(status_code=404, detail="找不到地點。")
+    return location
+
+
+@router.delete(
+    "/locations/{code}",
+    response_model=MessageResponse,
+    dependencies=[Depends(require_admin_session)],
+)
+def delete_location(code: str):
+    try:
+        deleted = repository.delete_location(code.upper())
+    except (repository.LocationConflict, repository.LocationHasActiveTasks) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="找不到地點。")
+    return MessageResponse()
 
 
 def _raise_rate_limited(retry_after: int) -> None:

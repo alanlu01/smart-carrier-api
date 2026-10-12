@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, overload
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 TaskStatus = Literal["pending", "in_progress", "done", "cancelled", "failed"]
 TaskType = Literal["borrow", "return", "delivery", "navigation", "callbot"]
@@ -44,6 +44,34 @@ class Location(BaseModel):
     x: float | None = None
     y: float | None = None
     yaw: float | None = None
+
+
+class LocationInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    floor: str = Field(min_length=1, max_length=30)
+    x: float = Field(allow_inf_nan=False)
+    y: float = Field(allow_inf_nan=False)
+    yaw: float = Field(default=0, allow_inf_nan=False)
+
+    @field_validator("name", "description", "floor")
+    @classmethod
+    def fit_oracle_columns(cls, value: str | None, info) -> str | None:
+        byte_limits = {"name": 200, "description": 1000, "floor": 50}
+        if value is not None and len(value.encode("utf-8")) > byte_limits[info.field_name]:
+            raise ValueError(f"{info.field_name} exceeds the database text limit")
+        return value
+
+
+class LocationCreate(LocationInput):
+    code: str = Field(min_length=1, max_length=32, pattern=r"^[A-Z0-9]+$")
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def normalize_code(cls, value: Any) -> Any:
+        return value.strip().upper() if isinstance(value, str) else value
 
 
 class TaskCreate(BaseModel):
