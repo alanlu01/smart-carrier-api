@@ -212,7 +212,7 @@ END;
 
 MERGE INTO locations target
 USING (
-  SELECT 'A1' code, '右樓梯口' name, '3F' floor, 7.7 x, -7.2 y, 0 yaw FROM dual
+  SELECT 'A1' code, '右樓梯口' name, '3F' floor, 7.8 x, -6.6 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
 WHEN MATCHED THEN UPDATE SET
@@ -224,7 +224,7 @@ VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 
 
 MERGE INTO locations target
 USING (
-  SELECT 'E1' code, '左樓梯口' name, '3F' floor, 7.5 x, 5.6 y, 0 yaw FROM dual
+  SELECT 'E1' code, '左樓梯口' name, '3F' floor, 7.2 x, 5.7 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
 WHEN MATCHED THEN UPDATE SET
@@ -236,7 +236,43 @@ VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 
 
 MERGE INTO locations target
 USING (
-  SELECT 'F1' code, '電機工程學系' name, '3F' floor, -2.6 x, 4.7 y, 0 yaw FROM dual
+  SELECT 'F1' code, '電機工程學系' name, '3F' floor, -3 x, 5 y, 0 yaw FROM dual
+) source
+ON (target.code = source.code)
+WHEN MATCHED THEN UPDATE SET
+  target.name = source.name, target.floor = source.floor,
+  target.x = source.x, target.y = source.y, target.yaw = source.yaw, target.enabled = 1
+WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
+VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
+/
+
+MERGE INTO locations target
+USING (
+  SELECT 'C1' code, 'CYCU EE' name, '3F' floor, 2.0 x, 5.18 y, 0 yaw FROM dual
+) source
+ON (target.code = source.code)
+WHEN MATCHED THEN UPDATE SET
+  target.name = source.name, target.floor = source.floor,
+  target.x = source.x, target.y = source.y, target.yaw = source.yaw, target.enabled = 1
+WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
+VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
+/
+
+MERGE INTO locations target
+USING (
+  SELECT 'L1' code, '座位燈' name, '3F' floor, 1.4 x, -5.3 y, 0 yaw FROM dual
+) source
+ON (target.code = source.code)
+WHEN MATCHED THEN UPDATE SET
+  target.name = source.name, target.floor = source.floor,
+  target.x = source.x, target.y = source.y, target.yaw = source.yaw, target.enabled = 1
+WHEN NOT MATCHED THEN INSERT (code, name, floor, x, y, yaw, enabled)
+VALUES (source.code, source.name, source.floor, source.x, source.y, source.yaw, 1);
+/
+
+MERGE INTO locations target
+USING (
+  SELECT 'B1' code, '座位' name, '3F' floor, 6.6 x, -0.3 y, 0 yaw FROM dual
 ) source
 ON (target.code = source.code)
 WHEN MATCHED THEN UPDATE SET

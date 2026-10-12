@@ -112,7 +112,7 @@ docker compose -f compose.oracle.yml run --rm api python -m app.migrations
 ```
 
 The idempotent migration creates locations, tasks, robots, power slots, robot events, indexes,
-and A1/E1/F1 seed locations. Existing S1 records are retained for task history but disabled for
+and A1/E1/F1/C1/L1/B1 seed locations. Existing S1 records are retained for task history but disabled for
 new orders and task claims.
 
 ### Apply measured map locations
@@ -122,26 +122,35 @@ result inside the API container before changing Oracle:
 
 ```bash
 docker compose -f compose.oracle.yml run --rm api \
-  python -m app.location_calibration A1 7.7 -7.2 0.0 --name '右樓梯口'
+  python -m app.location_calibration A1 7.8 -6.6 0.0 --name '右樓梯口'
 ```
 
 After the robot-side map validator reports `PASS`, apply the same pose explicitly:
 
 ```bash
 docker compose -f compose.oracle.yml run --rm api \
-  python -m app.location_calibration A1 7.7 -7.2 0.0 --name '右樓梯口' --apply
+  python -m app.location_calibration A1 7.8 -6.6 0.0 --name '右樓梯口' --apply
 ```
 
 The command refuses to change a location that has pending or in-progress tasks. Repeat for
-A1, E1, and F1, then verify `/api/v1/locations` before enabling real task claims.
+each existing location, then verify `/api/v1/locations` before enabling real task claims.
+New locations are created by the seed migration above; the calibration command only updates
+locations that already exist. Run the migration when no pending or in-progress tasks use the
+affected locations, since its seed statements replace their coordinates.
 
 The robot map is the source of truth. The current cloud mapping is:
 
 | Code | Name | x | y | yaw |
 | --- | --- | ---: | ---: | ---: |
-| A1 | 右樓梯口 | 7.7 | -7.2 | 0.0 |
-| E1 | 左樓梯口 | 7.5 | 5.6 | 0.0 |
-| F1 | 電機工程學系 | -2.6 | 4.7 | 0.0 |
+| A1 | 右樓梯口 | 7.8 | -6.6 | 0.0 |
+| E1 | 左樓梯口 | 7.2 | 5.7 | 0.0 |
+| F1 | 電機工程學系 | -3.0 | 5.0 | 0.0 |
+| C1 | CYCU EE | 2.0 | 5.18 | 0.0 |
+| L1 | 座位燈 | 1.4 | -5.3 | 0.0 |
+| B1 | 座位 | 6.6 | -0.3 | 0.0 |
+
+All six service points use floor `3F`. No new headings were supplied with these coordinates,
+so yaw remains `0.0` radians.
 
 ### Start by public IP
 
